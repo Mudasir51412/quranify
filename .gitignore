@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+.env
+models/
+data/full/
+*.npz
+
+quranify.db
+mobile/build/
+mobile/.dart_tool/

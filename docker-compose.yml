@@ -1,0 +1,41 @@
+# Quranify — single-VPS deployment (replaces the report's Colab + ngrok).
+# Usage:
+#   cp .env.example .env   # set JWT_SECRET + POSTGRES_PASSWORD
+#   docker compose up -d --build
+# API docs at http://<host>:8000/docs
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: quranify
+      POSTGRES_USER: quranify
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quranify-dev-password}
+    volumes:
+      - quranify_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quranify"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://quranify:${POSTGRES_PASSWORD:-quranify-dev-password}@db:5432/quranify
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-in-prod-32b}
+      QURANIFY_MODEL_ID: basharalrfooh/whisper-small-quran
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # The Whisper checkpoint (~460 MB) downloads once into this volume
+    # on first /analyze call, then persists across restarts.
+    volumes:
+      - quranify_hf_cache:/root/.cache/huggingface
+
+volumes:
+  quranify_pgdata:
+  quranify_hf_cache:
