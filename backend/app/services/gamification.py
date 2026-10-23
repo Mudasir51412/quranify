@@ -25,7 +25,8 @@ def _longest_streak(sessions: list[RecitationSession]) -> int:
 
 def compute_gamification(sessions: list[RecitationSession]) -> dict:
     correct_words = sum(s.correct_words for s in sessions)
-    perfect = [s for s in sessions if s.total_words > 0 and s.correct_words == s.total_words]
+    perfect = [s for s in sessions if s.status == "ok" and s.mode != "phrase"
+               and s.total_words > 0 and s.correct_words == s.total_words]
     points = correct_words + 10 * len(sessions) + 15 * len(perfect)
 
     level = 1
@@ -38,6 +39,8 @@ def compute_gamification(sessions: list[RecitationSession]) -> dict:
     ref = load_reference()
     recited: dict[int, set[int]] = {}
     for s in sessions:
+        if s.mode == "phrase" or s.status != "ok":
+            continue
         recited.setdefault(s.surah, set()).add(s.ayah)
     completed_surahs = [num for num, ayahs in recited.items()
                         if num in ref and len(ayahs) >= len(ref[num])]

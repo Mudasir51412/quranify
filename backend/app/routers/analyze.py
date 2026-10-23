@@ -5,11 +5,9 @@ Flow: auth -> validate surah/ayah -> decode audio -> guardrails
 (reject BEFORE scoring, no session saved for invalid audio) ->
 transcribe -> AI pipeline -> persist session + mistakes -> respond.
 
-GET /correction_audio — word-level contract (ayah-local index).
-Word-level MP3 assets (Buraaq quran-md-words) are a planned single
-download; until that asset lands, the endpoint returns the word, its
-context, and the Ayah-level reference audio URL pattern instead of
-pretending a word file exists.
+GET /correction_audio returns a reference URL with verified word-boundary
+start/end times for the selected phrase. Missing timings are a retryable
+service error; the client must never fall back to whole-ayah playback.
 """
 from pathlib import Path
 
@@ -17,12 +15,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..ai.audio_guardrails import AudioStatus, validate_audio
-from ..ai.pipeline import analyze_recitation
+from ..ai.practice import assess_practice
 from ..ai.reference import load_reference
 from ..db import get_db
 from ..models import MistakeRecord, RecitationSession, User
 from ..security import get_current_user
-from ..services.transcriber import Transcriber, decode_audio
+from ..services.transcriber import Recognition, Transcriber, decode_audio
+from ..services.reference_audio import verse_audio
 
 router = APIRouter(tags=["analyze"])
 
@@ -39,7 +38,15 @@ def get_transcriber() -> Transcriber:
     if _transcriber is None:
         from ..config import settings
         from ..services.transcriber import WhisperTranscriber
-        _transcriber = WhisperTranscriber(settings.model_id)
+        optimized = Path(settings.optimized_model_dir) / "model.bin"
+        if settings.inference_engine == "faster-whisper" or (
+            settings.inference_engine == "auto" and optimized.is_file()
+            and (optimized.parent / ".ready").is_file()
+        ):
+            from ..services.fast_transcriber import FasterWhisperTranscriber
+            _transcriber = FasterWhisperTranscriber(settings.optimized_model_dir, settings.inference_device)
+        else:
+            _transcriber = WhisperTranscriber(settings.model_id, settings.inference_device)
     return _transcriber
 
 
@@ -48,6 +55,8 @@ async def analyze(
     surah: int = Form(...),
     ayah: int = Form(...),
     audio: UploadFile = File(...),
+    word_start: int = Form(0),
+    word_end: int | None = Form(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     transcriber: Transcriber = Depends(get_transcriber),
@@ -57,6 +66,10 @@ async def analyze(
         raise HTTPException(400, "Unknown surah/ayah")
     reference_text = ref[surah][ayah]["text"]
     ref_words = reference_text.split()
+    word_end = len(ref_words) - 1 if word_end is None else word_end
+    if not 0 <= word_start <= word_end < len(ref_words):
+        raise HTTPException(400, "Invalid phrase word range (zero-based, inclusive)")
+    phrase = " ".join(ref_words[word_start:word_end + 1])
 
     raw = await audio.read()
     if not raw:
@@ -72,51 +85,48 @@ async def analyze(
         # R1: reject before scoring; nothing is persisted.
         raise HTTPException(400, f"Audio rejected: {guard.status.value}")
     try:
-        transcription = transcriber.transcribe(guard.audio)
+        # Restore the original unprompted decoder. Another decode must not
+        # fill omitted words or clear errors observed in this transcription.
+        recognition = Recognition(transcriber.transcribe(guard.audio))
     except Exception:
         raise HTTPException(503, "Transcription service unavailable")
 
-    result = analyze_recitation(reference_text, transcription)
-    if result.status == "rejected":
-        raise HTTPException(400, f"Analysis rejected: {result.reason}")
-
-    skipped_idx = {s.index for s in result.skips}
-    correct = result.total_words - len(skipped_idx) - len(
-        {e.word_index for e in result.harakat_errors})
-    session = RecitationSession(
-        user_id=user.id, surah=surah, ayah=ayah, transcription=transcription,
-        status=result.status, mode="single", total_words=result.total_words,
-        correct_words=max(correct, 0))
-    db.add(session)
-    db.flush()
-    for s in result.skips:
-        db.add(MistakeRecord(
-            session_id=session.id, type="skipped", ayah=ayah, word_index=s.index,
-            reference_word=ref_words[s.index] if s.index < len(ref_words) else s.word))
-    for e in result.harakat_errors:
-        wi = e.word_index or 0
-        db.add(MistakeRecord(
-            session_id=session.id, type="harakat", ayah=ayah, word_index=wi,
-            reference_word=ref_words[wi] if wi < len(ref_words) else "",
-            letter=e.letter, expected_vowel=e.expected_vowel or "",
-            heard_vowel=e.heard_vowel or ""))
-    db.commit()
-
+    result = assess_practice(phrase, recognition)
+    status = "retry" if result.retry_words else "ok"
+    skips, harakat_errors, incorrect = [], [], []
+    for index, mistake in sorted(result.mistakes.items()):
+        wi = word_start + index
+        item = {"word_index": wi, "word": ref_words[wi], "ayah": ayah}
+        if mistake["type"] == "skipped":
+            skips.append({**item, "index": wi})
+        elif mistake.get("reason") == "harakat":
+            harakat_errors.extend({**item, **e} for e in mistake["harakat_errors"])
+        else:
+            incorrect.append({**item, "type": "incorrect"})
+    confirmed = [word_start + i for i, state in enumerate(result.states) if state != "retry"]
+    session = None
+    if confirmed:
+        session = RecitationSession(
+            user_id=user.id, surah=surah, ayah=ayah, transcription=recognition.text,
+            status=status, mode="single" if word_start == 0 and word_end == len(ref_words) - 1 else "phrase",
+            total_words=len(confirmed), correct_words=result.states.count("matched"))
+        db.add(session)
+        db.flush()
+        for kind, entries in (("skipped", skips), ("harakat", harakat_errors), ("incorrect", incorrect)):
+            for item in entries:
+                db.add(MistakeRecord(session_id=session.id, type=kind, ayah=ayah,
+                    word_index=item["word_index"], reference_word=item["word"],
+                    letter=item.get("letter", ""), expected_vowel=item.get("expected_vowel") or "",
+                    heard_vowel=item.get("heard_vowel") or ""))
+        db.commit()
     return {
-        "session_id": session.id,
-        "status": result.status,
-        "reason": result.reason,
-        "transcription": transcription,
-        "reference": reference_text,
-        "total_words": result.total_words,
-        "skips": [{"index": s.index, "word": ref_words[s.index]}
-                  for s in result.skips if s.index < len(ref_words)],
-        "harakat_errors": [{
-            "word_index": e.word_index, "letter": e.letter,
-            "expected_vowel": e.expected_vowel, "heard_vowel": e.heard_vowel,
-            "word": ref_words[e.word_index] if e.word_index is not None
-                    and e.word_index < len(ref_words) else "",
-        } for e in result.harakat_errors],
+        "session_id": session.id if session else None, "status": status,
+        "reason": "RETRY_PHRASE" if result.retry_words else None,
+        "transcription": recognition.text, "reference": reference_text,
+        "total_words": len(confirmed), "word_start": word_start, "word_end": word_end,
+        "confirmed_words": confirmed,
+        "retry_words": [word_start + i for i in result.retry_words],
+        "skips": skips, "harakat_errors": harakat_errors, "incorrect_words": incorrect,
     }
 
 
@@ -203,6 +213,7 @@ async def analyze_continuous_endpoint(
 
 @router.get("/correction_audio")
 def correction_audio(surah: int, ayah: int, word: int,
+                     word_start: int | None = None, word_end: int | None = None,
                      user: User = Depends(get_current_user)):
     ref = load_reference()
     if surah not in ref or ayah not in ref.get(surah, {}):
@@ -210,13 +221,20 @@ def correction_audio(surah: int, ayah: int, word: int,
     words = ref[surah][ayah]["text"].split()
     if word < 0 or word >= len(words):
         raise HTTPException(400, "Word index out of range (ayah-local, zero-based)")
+    start = max(0, word - 1) if word_start is None else word_start
+    end = min(len(words) - 1, word + 1) if word_end is None else word_end
+    if not 0 <= start <= word <= end < len(words):
+        raise HTTPException(400, "Invalid correction phrase range")
+    try:
+        url, timings = verse_audio(surah, ayah, len(words))
+    except Exception:
+        raise HTTPException(503, "Phrase audio is unavailable. Please try Listen again.")
     return {
         "surah": surah, "ayah": ayah, "word_index": word,
         "word": words[word],
         "prev_word": words[word - 1] if word > 0 else None,
         "next_word": words[word + 1] if word + 1 < len(words) else None,
-        "word_audio_available": False,
-        "word_audio_note": "Word-level MP3s (Buraaq quran-md-words) not yet downloaded; "
-                           "use ayah_audio_url for contextual playback meanwhile.",
-        "ayah_audio_url": f"https://everyayah.com/data/Alafasy_128kbps/{surah:03d}{ayah:03d}.mp3",
+        "word_start": start, "word_end": end, "phrase": " ".join(words[start:end + 1]),
+        "audio_url": url, "start_ms": timings[start][0], "end_ms": timings[end][1],
+        "phrase_audio_available": True,
     }

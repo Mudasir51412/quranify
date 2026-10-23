@@ -8,6 +8,7 @@ words; Harakat detection requires the vowel marks.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 
 from .normalization import fix_whisper
@@ -45,7 +46,15 @@ def load_full_reference(path: str | Path | None = None) -> dict:
         return build_reference(json.load(f))
 
 
+@lru_cache(maxsize=2)
+def _cached_reference(path: str, modified_ns: int, size: int) -> dict:
+    """Shared read-only corpus; the file signature invalidates stale entries."""
+    return load_full_reference(path)
+
+
 def load_reference() -> dict:
-    """Full corpus if built, otherwise the development sample."""
+    """Full corpus if built, otherwise the sample; reuse normalized word data."""
     full = Path(__file__).resolve().parents[3] / "data" / "quran_reference.json"
-    return load_full_reference(full) if full.exists() else load_sample_reference()
+    path = full if full.exists() else full.with_name("sample_quran.json")
+    info = path.stat()
+    return _cached_reference(str(path), info.st_mtime_ns, info.st_size)

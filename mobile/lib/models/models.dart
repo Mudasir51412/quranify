@@ -64,7 +64,8 @@ class AyahText {
   final String text;
   final int wordCount;
 
-  const AyahText({required this.ayah, required this.text, required this.wordCount});
+  const AyahText(
+      {required this.ayah, required this.text, required this.wordCount});
 
   factory AyahText.fromJson(Map<String, dynamic> j) => AyahText(
         ayah: j['ayah'] as int,
@@ -100,13 +101,16 @@ class SurahDetail {
 }
 
 class Mistake {
-  final String type; // skipped | harakat
+  final String type; // skipped | harakat | incorrect
   final int ayah;
   final int wordIndex;
   final String referenceWord;
   final String letter;
   final String expectedVowel;
   final String heardVowel;
+  final bool? expectedShadda;
+  final bool? heardShadda;
+  final bool corrected;
 
   const Mistake({
     required this.type,
@@ -116,27 +120,40 @@ class Mistake {
     this.letter = '',
     this.expectedVowel = '',
     this.heardVowel = '',
+    this.expectedShadda,
+    this.heardShadda,
+    this.corrected = false,
   });
 
   factory Mistake.fromJson(Map<String, dynamic> j) => Mistake(
-        type: j['type'] as String? ?? (j.containsKey('letter') ? 'harakat' : 'skipped'),
+        type: j['type'] as String? ??
+            (j.containsKey('letter') ? 'harakat' : 'skipped'),
         ayah: (j['ayah'] ?? 0) as int,
         wordIndex: (j['word_index'] ?? j['index'] ?? 0) as int,
         referenceWord: (j['reference_word'] ?? j['word'] ?? '') as String,
         letter: (j['letter'] ?? '') as String,
         expectedVowel: (j['expected_vowel'] ?? '') as String,
         heardVowel: (j['heard_vowel'] ?? '') as String,
+        expectedShadda: j['expected_shadda'] as bool?,
+        heardShadda: j['heard_shadda'] as bool?,
+        corrected: j['corrected'] == true,
       );
 }
 
 class AnalysisResult {
-  final String status; // ok | uncertain | no_match
+  final String
+      status; // ok | retry (uncertain/no_match accepted from older servers)
   final String? reason;
   final String transcription;
   final String reference;
   final int? sessionId;
   final List<Mistake> skips;
   final List<Mistake> harakatErrors;
+  final List<Mistake> incorrectWords;
+  final List<int> retryWords;
+  final List<int>? confirmedWords;
+  final int wordStart;
+  final int? wordEnd;
 
   const AnalysisResult({
     required this.status,
@@ -146,6 +163,11 @@ class AnalysisResult {
     this.sessionId,
     required this.skips,
     required this.harakatErrors,
+    this.incorrectWords = const [],
+    this.retryWords = const [],
+    this.confirmedWords,
+    this.wordStart = 0,
+    this.wordEnd,
   });
 
   factory AnalysisResult.fromJson(Map<String, dynamic> j) {
@@ -163,6 +185,8 @@ class AnalysisResult {
           letter: (m['letter'] ?? '') as String,
           expectedVowel: (m['expected_vowel'] ?? '') as String,
           heardVowel: (m['heard_vowel'] ?? '') as String,
+          expectedShadda: m['expected_shadda'] as bool?,
+          heardShadda: m['heard_shadda'] as bool?,
         );
     return AnalysisResult(
       status: (j['status'] ?? 'ok') as String,
@@ -176,10 +200,107 @@ class AnalysisResult {
       harakatErrors: ((j['harakat_errors'] ?? []) as List<dynamic>)
           .map((e) => harakatFrom(e as Map<String, dynamic>))
           .toList(),
+      incorrectWords: ((j['incorrect_words'] ?? []) as List<dynamic>)
+          .map((e) => Mistake.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      retryWords: ((j['retry_words'] ?? []) as List<dynamic>).cast<int>(),
+      confirmedWords: (j['confirmed_words'] as List<dynamic>?)?.cast<int>(),
+      wordStart: (j['word_start'] ?? 0) as int,
+      wordEnd: j['word_end'] as int?,
     );
   }
 
-  bool get hasMistakes => skips.isNotEmpty || harakatErrors.isNotEmpty;
+  bool get hasMistakes =>
+      skips.isNotEmpty || harakatErrors.isNotEmpty || incorrectWords.isNotEmpty;
+
+  String get feedbackSummary {
+    final missed = skips.map((m) => m.wordIndex).toSet();
+    final wrong = {
+      ...harakatErrors.map((m) => m.wordIndex),
+      ...incorrectWords.map((m) => m.wordIndex)
+    }.difference(missed);
+    final retryCount = retryIndices.toSet().length;
+    return [
+      if (missed.isNotEmpty || wrong.isNotEmpty || retryCount == 0)
+        '${missed.length} missed · ${wrong.length} wrong',
+      if (retryCount > 0)
+        '$retryCount ${retryCount == 1 ? 'word' : 'words'} to retry',
+    ].join(' · ');
+  }
+
+  List<int> get retryIndices => retryWords.isNotEmpty
+      ? retryWords
+      : (status == 'uncertain' || status == 'no_match' || status == 'retry')
+          ? [
+              for (var i = wordStart;
+                  i <= (wordEnd ?? reference.split(RegExp(r'\s+')).length - 1);
+                  i++)
+                i
+            ]
+          : const [];
+
+  /// Only reassessed words replace previous feedback. An unsuccessful retry
+  /// preserves existing errors, and never clears results elsewhere in the ayah.
+  AnalysisResult mergePhrase(AnalysisResult update) {
+    final count = reference.split(RegExp(r'\s+')).length;
+    final confirmed = (update.confirmedWords ??
+            [
+              for (var i = update.wordStart;
+                  i <= (update.wordEnd ?? count - 1);
+                  i++)
+                if (!update.retryIndices.contains(i)) i
+            ])
+        .toSet();
+    List<Mistake> merge(List<Mistake> old, List<Mistake> fresh) =>
+        [...old.where((m) => !confirmed.contains(m.wordIndex)), ...fresh];
+    final retry = {
+      ...retryIndices.where((i) => !confirmed.contains(i)),
+      ...update.retryIndices
+    }.toList()
+      ..sort();
+    return AnalysisResult(
+        status: retry.isEmpty ? 'ok' : 'retry',
+        transcription: update.transcription,
+        reference: reference,
+        sessionId: update.sessionId ?? sessionId,
+        skips: merge(skips, update.skips),
+        harakatErrors: merge(harakatErrors, update.harakatErrors),
+        incorrectWords: merge(incorrectWords, update.incorrectWords),
+        retryWords: retry);
+  }
+
+  List<PracticePhrase> get practicePhrases {
+    final count =
+        reference.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    final targets = {
+      ...retryIndices,
+      ...skips.map((m) => m.wordIndex),
+      ...harakatErrors.map((m) => m.wordIndex),
+      ...incorrectWords.map((m) => m.wordIndex)
+    }.toList()
+      ..sort();
+    final phrases = <PracticePhrase>[];
+    for (final i in targets.where((i) => i >= 0 && i < count)) {
+      final start = i > 0 ? i - 1 : 0;
+      final end = i + 1 < count ? i + 1 : count - 1;
+      if (phrases.isNotEmpty &&
+          start <= phrases.last.endWord &&
+          end - phrases.last.startWord < 5) {
+        phrases[phrases.length - 1] =
+            PracticePhrase(phrases.last.startWord, end);
+      } else {
+        phrases.add(PracticePhrase(start, end));
+      }
+    }
+    return phrases;
+  }
+}
+
+class PracticePhrase {
+  final int startWord;
+  final int endWord;
+  const PracticePhrase(this.startWord, this.endWord);
+  bool contains(int index) => startWord <= index && index <= endWord;
 }
 
 class SessionRecord {

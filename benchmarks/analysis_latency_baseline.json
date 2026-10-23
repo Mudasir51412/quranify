@@ -1,0 +1,186 @@
+{
+  "engine": "faster-whisper",
+  "device": "cuda",
+  "cold_ms": 5552.2,
+  "warm_median_ms": 436.4,
+  "warm_max_ms": 517.2,
+  "attempts": [
+    {
+      "attempt": 0,
+      "ayah": 1,
+      "total_ms": 5552.2,
+      "phases_ms": {
+        "reference": [
+          149.7
+        ],
+        "audio_decode": [
+          111.0
+        ],
+        "recognition": [
+          5264.9
+        ]
+      },
+      "status": "ok",
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 1,
+      "ayah": 1,
+      "total_ms": 500.0,
+      "phases_ms": {
+        "reference": [
+          172.8
+        ],
+        "audio_decode": [
+          89.7
+        ],
+        "recognition": [
+          224.5
+        ]
+      },
+      "status": "ok",
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 2,
+      "ayah": 2,
+      "total_ms": 405.2,
+      "phases_ms": {
+        "reference": [
+          114.5
+        ],
+        "audio_decode": [
+          67.9
+        ],
+        "recognition": [
+          207.3
+        ]
+      },
+      "status": "ok",
+      "transcription": "اللَّهُ الصَّمَدُ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 3,
+      "ayah": 3,
+      "total_ms": 428.1,
+      "phases_ms": {
+        "reference": [
+          113.4
+        ],
+        "audio_decode": [
+          70.1
+        ],
+        "recognition": [
+          232.9
+        ]
+      },
+      "status": "ok",
+      "transcription": "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 4,
+      "ayah": 4,
+      "total_ms": 473.2,
+      "phases_ms": {
+        "reference": [
+          115.0
+        ],
+        "audio_decode": [
+          76.8
+        ],
+        "recognition": [
+          269.4
+        ]
+      },
+      "status": "ok",
+      "transcription": "وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 5,
+      "ayah": 1,
+      "total_ms": 408.6,
+      "phases_ms": {
+        "reference": [
+          112.8
+        ],
+        "audio_decode": [
+          69.1
+        ],
+        "recognition": [
+          214.7
+        ]
+      },
+      "status": "ok",
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 6,
+      "ayah": 3,
+      "total_ms": 436.4,
+      "phases_ms": {
+        "reference": [
+          112.1
+        ],
+        "audio_decode": [
+          71.5
+        ],
+        "recognition": [
+          238.9
+        ]
+      },
+      "status": "ok",
+      "transcription": "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "attempt": 7,
+      "ayah": 4,
+      "total_ms": 517.2,
+      "phases_ms": {
+        "reference": [
+          127.7
+        ],
+        "audio_decode": [
+          78.6
+        ],
+        "recognition": [
+          297.0
+        ]
+      },
+      "status": "ok",
+      "transcription": "وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ",
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    }
+  ],
+  "caveat": "Server-side reference-audio benchmark, excludes phone recording and Wi-Fi upload; no learner accuracy validation."
+}

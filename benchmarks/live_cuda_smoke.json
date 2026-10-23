@@ -1,0 +1,204 @@
+{
+  "device": "cuda",
+  "caveat": "EveryAyah training-distribution smoke test; no physical-phone rehearsal",
+  "rows": [
+    {
+      "audio_seconds": 1.0,
+      "inference_seconds": 1.342,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "الْقَدَّرُونَةُ",
+          "start": 0.8,
+          "end": 0.98
+        }
+      ],
+      "committed": [],
+      "scored_words": 0
+    },
+    {
+      "audio_seconds": 1.5,
+      "inference_seconds": 0.837,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "اللَّهُ",
+          "start": 0.8,
+          "end": 1.48
+        }
+      ],
+      "committed": [
+        "قُلْ",
+        "هُوَ"
+      ],
+      "scored_words": 2
+    },
+    {
+      "audio_seconds": 2.0,
+      "inference_seconds": 0.593,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "اللَّهُ",
+          "start": 0.8,
+          "end": 1.66
+        },
+        {
+          "text": "أَحَدٌ",
+          "start": 1.66,
+          "end": 1.98
+        }
+      ],
+      "committed": [
+        "اللَّهُ"
+      ],
+      "scored_words": 3
+    },
+    {
+      "audio_seconds": 2.5,
+      "inference_seconds": 0.588,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "اللَّهُ",
+          "start": 0.8,
+          "end": 1.66
+        },
+        {
+          "text": "أَحَدٌ",
+          "start": 1.66,
+          "end": 2.36
+        }
+      ],
+      "committed": [
+        "أَحَدٌ"
+      ],
+      "scored_words": 4
+    },
+    {
+      "audio_seconds": 2.917,
+      "inference_seconds": 0.585,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "اللَّهُ",
+          "start": 0.8,
+          "end": 1.66
+        },
+        {
+          "text": "أَحَدٌ",
+          "start": 1.66,
+          "end": 2.4
+        }
+      ],
+      "committed": [],
+      "scored_words": 4
+    },
+    {
+      "audio_seconds": 2.917,
+      "inference_seconds": 0.586,
+      "words": [
+        {
+          "text": "قُلْ",
+          "start": 0.0,
+          "end": 0.42
+        },
+        {
+          "text": "هُوَ",
+          "start": 0.42,
+          "end": 0.8
+        },
+        {
+          "text": "اللَّهُ",
+          "start": 0.8,
+          "end": 1.66
+        },
+        {
+          "text": "أَحَدٌ",
+          "start": 1.66,
+          "end": 2.4
+        }
+      ],
+      "committed": [],
+      "scored_words": 4
+    }
+  ],
+  "review": {
+    "status": "ok",
+    "current_ayah": 2,
+    "current_word": 0,
+    "completed": false,
+    "scored_words": 4,
+    "matched_words": 4,
+    "uncertain_words": 0,
+    "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+    "words": [
+      {
+        "ayah": 1,
+        "word_index": 0,
+        "state": "matched"
+      },
+      {
+        "ayah": 1,
+        "word_index": 1,
+        "state": "matched"
+      },
+      {
+        "ayah": 1,
+        "word_index": 2,
+        "state": "matched"
+      },
+      {
+        "ayah": 1,
+        "word_index": 3,
+        "state": "matched"
+      }
+    ],
+    "mistakes": []
+  }
+}

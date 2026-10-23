@@ -3,6 +3,59 @@
 Same pattern as the GlycoTwin phone tests: **backend runs on your PC,
 phone connects over the same Wi-Fi.** Nothing is exposed to the internet.
 
+## Current Recite workflow
+
+Install the newly built APK, start the backend on your PC, and verify the API URL
+in **Profile → Connection** points to the PC's LAN address. Open **Recite**, select
+a Surah and starting Ayah, then check:
+
+1. Arabic ayahs are visible before you start. **Hifz · Hide text** hides every word.
+2. Press **Recite beside one Ayah**. Only its button becomes **Pause**; other
+   recording buttons and the Surah/Ayah selectors are disabled.
+3. Read that whole Ayah, then press **Pause**. Only now should **Analyzing this
+   ayah…** appear. Feedback belongs beneath the selected Ayah, without auto-advance.
+4. Skip a word deliberately, then submit. A confirmed **Missed** word should be
+   faint; confirmed **Wrong** words should receive a light red highlight. In Hifz
+   only those reference words are revealed after analysis.
+5. Press **Try again** on that Ayah. Its previous hints clear for a fresh recording,
+   while other Ayahs keep their feedback.
+6. Switch tabs or background the app during recording. The microphone should
+   stop and the unfinished clip should be cancelled without upload.
+7. Stop the backend, record and submit, and check that a readable error appears
+   with recording controls enabled again. Analysis times out after two minutes.
+8. Stretch words naturally, repeat a word, and restart a phrase. These should
+   not create duplicate-word penalties. If recognition is unreliable, the app
+   asks you to retry a short phrase without labeling a word "unclear" or penalizing it.
+9. Tap **Listen** below a problem phrase. Only the displayed phrase should play.
+   Then tap **Try this phrase**, read that phrase, and press **Pause**. A successful
+   retry clears its own highlights; errors elsewhere remain. A failed recording
+   or an unconfirmed retry must not erase existing feedback.
+10. Start a recording while Listen is still loading, or background the app.
+    Reference playback must not start later over the microphone.
+
+The practice-feedback build is `dist/quranify-practice.apk`. Restart the PC
+backend to load the updated analysis and timing endpoints before using it.
+Wait for **Application startup complete** after the model warmup message.
+The first recording should then use the already loaded model. A healthy warmed
+GPU backend reports `inference.status=ready` and `inference.device=cuda` at `/health`.
+`scripts/smoke_practice_feedback.py` checks the GPU model using professional
+reference audio, a synthetic tempo change/restart, and a timed phrase clip.
+These checks do not establish accuracy for your voice or physical-phone playback.
+
+The optimized model and CUDA setup are documented in `README.md`. Inference runs
+on the PC backend. The per-Ayah APK was installed on the Infinix X6850 over USB.
+Microphone startup, disabled neighboring controls, and cancellation on leaving
+the tab were checked on that phone without uploading a test session. Real WAV
+uploads with cached professional reference audio passed through the GPU model in
+an isolated database. Feedback accuracy for actual learner speech still needs
+the phone rehearsal above.
+
+If signup or sign-in cannot reach the server, use **Server connection** on either
+screen before logging in. Enter the PC's current Wi-Fi address and press **Test
+and save**. This checks the backend before saving. Account and other JSON requests
+time out after ten seconds instead of leaving the form stuck. Keep the PC backend
+running while using the app.
+
 You need the project folder (`quranify-mvp`) on your PC — unzip the
 bundle Muse prepared.
 
@@ -50,9 +103,9 @@ bundle Muse prepared.
    flutter build apk --debug
    ```
    APK lands at `mobile\build\app\outputs\flutter-apk\app-debug.apk`.
-4. In the app: register an account → Quran tab → Surah 112 → Recite on
-   any Ayah → record → see the highlighted feedback. Try Continuous
-   (Huffaz) mode from the Recite tab too.
+4. In the app: register an account → Recite tab → Surah 112 → choose a
+   starting Ayah → optionally hide text with Hifz → press Recite beside an Ayah.
+   Read that Ayah and press Pause. Feedback appears after backend analysis.
    If a connection error appears, open **Profile → Connection**, set the
    API URL to `http://<your LAN IP>:8000`, save, and retry.
 
@@ -60,9 +113,10 @@ bundle Muse prepared.
 - Register → login persists after app restart
 - Surah 1: hide-text (Hifz test) toggle, reading position save, re-open
   app → Home shows "Continue Reading"
-- Recite 112:1 correctly → "no mistakes" result; skip a word on purpose
-  → that word flagged red; change بِسْمِ's Kasra to Fatha in 1:1 → Harakat flag
-- Continuous mode 112:1–3, skip Ayah 2 entirely → "Skipped Ayah: 2"
+- Recite 112:1 correctly and submit with Pause, then Try again with a deliberate
+  omission → a faint skipped-word hint appears after analysis.
+- Start at 112:2; only Ayahs 2–4 should be displayed. Practice Ayah 3 and confirm
+  feedback appears only there. Finish the selected Ayah before pressing Pause.
 - Progress tab: accuracy, streak, badges update after sessions
 
 ---
@@ -91,8 +145,9 @@ microphone on plain-HTTP LAN pages. Recitation testing needs Path A
 ## Troubleshooting
 - **Phone can't reach the backend** → same Wi-Fi? firewall? correct LAN
   IP (not 127.0.0.1)? `/health` check first.
-- **Analysis is slow** → CPU inference; the first call also loads the
-  model. ~8–14 s per Ayah is normal here.
+- **Analysis is slow** → prepare the optimized model and CUDA runtime using
+  the README steps. The first submission may load the model; feedback begins
+  only after Pause. The microphone is already stopped while analysis runs.
 - **`flutter doctor` Android license errors** → run
   `flutter doctor --android-licenses`.
 - **Mic permission** → the app asks on first record; if denied earlier,

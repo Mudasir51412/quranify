@@ -19,7 +19,9 @@ def _session_out(s: RecitationSession) -> dict:
         "total_words": s.total_words, "correct_words": s.correct_words,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "mistakes": [{
-            "type": m.type, "ayah": m.ayah, "word_index": m.word_index,
+            "type": m.type.removeprefix("fixed_"),
+            "corrected": m.type.startswith("fixed_"),
+            "ayah": m.ayah, "word_index": m.word_index,
             "reference_word": m.reference_word, "letter": m.letter,
             "expected_vowel": m.expected_vowel, "heard_vowel": m.heard_vowel,
         } for m in s.mistakes],
@@ -55,7 +57,8 @@ def progress(user: User = Depends(get_current_user), db: Session = Depends(get_d
                 .filter(RecitationSession.user_id == user.id).all())
     by_type = {"skipped": 0, "harakat": 0}
     for m in mistakes:
-        by_type[m.type] = by_type.get(m.type, 0) + 1
+        kind = m.type.removeprefix("fixed_")
+        by_type[kind] = by_type.get(kind, 0) + 1
     return {
         "sessions": len(sessions),
         "ayahs_recited": len({(s.surah, s.ayah) for s in sessions}),

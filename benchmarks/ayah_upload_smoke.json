@@ -1,0 +1,28 @@
+{
+  "engine": "faster-whisper",
+  "device": "cuda",
+  "uploads": [
+    {
+      "surah": 112,
+      "ayah": 1,
+      "seconds": 20.693,
+      "status": "ok",
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "reference": "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "skips": [],
+      "harakat_errors": []
+    },
+    {
+      "surah": 112,
+      "ayah": 2,
+      "seconds": 2.397,
+      "status": "ok",
+      "transcription": "اللَّهُ الصَّمَدُ",
+      "reference": "ٱللَّهُ ٱلصَّمَدُ",
+      "skips": [],
+      "harakat_errors": []
+    }
+  ],
+  "silence_rejected_without_session": true,
+  "caveat": "Cached professional reference audio, isolated DB; physical microphone and learner accuracy untested"
+}

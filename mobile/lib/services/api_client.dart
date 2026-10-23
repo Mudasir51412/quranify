@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,8 +18,17 @@ class ApiException implements Exception {
 class ApiClient {
   String baseUrl;
   String? token;
+  final http.Client _client;
+  final Duration requestTimeout;
+  final Duration analysisTimeout;
 
-  ApiClient({required this.baseUrl, this.token});
+  ApiClient(
+      {required this.baseUrl,
+      this.token,
+      http.Client? client,
+      this.requestTimeout = const Duration(seconds: 10),
+      this.analysisTimeout = const Duration(minutes: 2)})
+      : _client = client ?? http.Client();
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -27,34 +37,58 @@ class ApiClient {
 
   Uri _u(String path) => Uri.parse('$baseUrl$path');
 
-  Future<dynamic> _get(String path) async {
-    http.Response r;
+  Future<http.Response> _request(String method, String path,
+      {Object? body, Uri? url}) async {
+    final abort = Completer<void>();
     try {
-      r = await http.get(_u(path), headers: _headers);
+      final request = http.AbortableRequest(method, url ?? _u(path),
+          abortTrigger: abort.future);
+      request.headers.addAll(_headers);
+      if (body != null) request.body = jsonEncode(body);
+      // Bound both connection establishment and response-body reception.
+      return await (() async =>
+              http.Response.fromStream(await _client.send(request)))()
+          .timeout(requestTimeout);
+    } on TimeoutException {
+      if (!abort.isCompleted) abort.complete();
+      throw ApiException(
+          'Connection timed out. Check Server connection and make sure the backend is running.');
     } on SocketException {
-      throw ApiException('Cannot reach the server. Check the API URL in Profile.');
+      throw ApiException('Cannot reach the server. Check Server connection.');
+    } on http.ClientException {
+      throw ApiException('Cannot reach the server. Check Server connection.');
+    } on FormatException {
+      throw ApiException('Invalid server address. Check Server connection.');
     }
-    return _decode(r);
   }
 
-  Future<dynamic> _send(String method, String path, [Object? body]) async {
-    http.Response r;
-    try {
-      final req = http.Request(method, _u(path));
-      req.headers.addAll(_headers);
-      if (body != null) req.body = jsonEncode(body);
-      final streamed = await req.send();
-      r = await http.Response.fromStream(streamed);
-    } on SocketException {
-      throw ApiException('Cannot reach the server. Check the API URL in Profile.');
+  Future<dynamic> _get(String path) async =>
+      _decode(await _request('GET', path));
+
+  Future<dynamic> _send(String method, String path, [Object? body]) async =>
+      _decode(await _request(method, path, body: body));
+
+  Future<void> checkConnection(String address) async {
+    final url = Uri.parse('${address.replaceAll(RegExp(r'/+$'), '')}/health');
+    final result = _decode(await _request('GET', '/health', url: url));
+    if (result is! Map ||
+        result['status'] != 'ok' ||
+        result['service'] != 'quranify-api') {
+      throw ApiException('This address is not a Quranify server.');
     }
-    return _decode(r);
   }
 
   dynamic _decode(http.Response r) {
-    final body = r.body.isEmpty ? null : jsonDecode(r.body);
+    dynamic body;
+    try {
+      body = r.body.isEmpty ? null : jsonDecode(r.body);
+    } on FormatException {
+      throw ApiException(
+          'Unexpected server response. Check Server connection.');
+    }
     if (r.statusCode >= 200 && r.statusCode < 300) return body;
-    final detail = body is Map ? (body['detail'] ?? 'Request failed') : 'Request failed';
+    final detail =
+        body is Map ? (body['detail'] ?? 'Request failed') : 'Request failed';
     throw ApiException(detail.toString(), r.statusCode);
   }
 
@@ -68,12 +102,14 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    final j = await _send('POST', '/auth/login', {'email': email, 'password': password});
+    final j = await _send(
+        'POST', '/auth/login', {'email': email, 'password': password});
     token = j['token'] as String;
     return j as Map<String, dynamic>;
   }
 
-  Future<UserProfile> me() async => UserProfile.fromJson(await _get('/auth/me'));
+  Future<UserProfile> me() async =>
+      UserProfile.fromJson(await _get('/auth/me'));
 
   Future<UserProfile> patchMe(Map<String, dynamic> patch) async =>
       UserProfile.fromJson(await _send('PATCH', '/auth/me', patch));
@@ -93,14 +129,16 @@ class ApiClient {
       SurahDetail.fromJson(await _get('/quran/surah/$num'));
 
   // --- Home / progress ---
-  Future<Map<String, dynamic>> home() async => await _get('/home') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> home() async =>
+      await _get('/home') as Map<String, dynamic>;
   Future<Map<String, dynamic>> progress() async =>
       await _get('/progress') as Map<String, dynamic>;
   Future<Map<String, dynamic>> streak() async =>
       await _get('/streak') as Map<String, dynamic>;
   Future<Map<String, dynamic>> gamification() async =>
       await _get('/gamification') as Map<String, dynamic>;
-  Future<Map<String, dynamic>> daily() async => await _get('/daily') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> daily() async =>
+      await _get('/daily') as Map<String, dynamic>;
 
   Future<List<SessionRecord>> history() async {
     final j = await _get('/history');
@@ -109,8 +147,11 @@ class ApiClient {
         .toList();
   }
 
-  Future<Map<String, dynamic>> correctionAudio(int surah, int ayah, int word) async =>
-      await _get('/correction_audio?surah=$surah&ayah=$ayah&word=$word')
+  Future<Map<String, dynamic>> correctionAudio(int surah, int ayah, int word,
+          {int? wordStart, int? wordEnd}) async =>
+      await _get('/correction_audio?surah=$surah&ayah=$ayah&word=$word'
+              '${wordStart == null ? '' : '&word_start=$wordStart'}'
+              '${wordEnd == null ? '' : '&word_end=$wordEnd'}')
           as Map<String, dynamic>;
 
   // --- Analysis (multipart audio upload) ---
@@ -118,31 +159,39 @@ class ApiClient {
     required int surah,
     required int ayah,
     required String audioPath,
+    int? wordStart,
+    int? wordEnd,
   }) async {
-    final req = http.MultipartRequest('POST', _u('/analyze'));
-    if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    req.fields['surah'] = surah.toString();
-    req.fields['ayah'] = ayah.toString();
-    req.files.add(await http.MultipartFile.fromPath('audio', audioPath));
-    final streamed = await req.send();
-    final r = await http.Response.fromStream(streamed);
-    return AnalysisResult.fromJson(_decode(r) as Map<String, dynamic>);
-  }
-
-  Future<Map<String, dynamic>> analyzeContinuous({
-    required int surah,
-    required int fromAyah,
-    required int toAyah,
-    required String audioPath,
-  }) async {
-    final req = http.MultipartRequest('POST', _u('/analyze_continuous'));
-    if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    req.fields['surah'] = surah.toString();
-    req.fields['from_ayah'] = fromAyah.toString();
-    req.fields['to_ayah'] = toAyah.toString();
-    req.files.add(await http.MultipartFile.fromPath('audio', audioPath));
-    final streamed = await req.send();
-    final r = await http.Response.fromStream(streamed);
-    return _decode(r) as Map<String, dynamic>;
+    final abort = Completer<void>();
+    try {
+      final response = await (() async {
+        final req = http.AbortableMultipartRequest('POST', _u('/analyze'),
+            abortTrigger: abort.future);
+        if (token != null) req.headers['Authorization'] = 'Bearer $token';
+        req.fields['surah'] = surah.toString();
+        req.fields['ayah'] = ayah.toString();
+        if (wordStart != null) req.fields['word_start'] = wordStart.toString();
+        if (wordEnd != null) req.fields['word_end'] = wordEnd.toString();
+        req.files.add(await http.MultipartFile.fromPath('audio', audioPath));
+        return http.Response.fromStream(await _client.send(req));
+      })()
+          .timeout(analysisTimeout);
+      return AnalysisResult.fromJson(_decode(response) as Map<String, dynamic>);
+    } on TimeoutException {
+      if (!abort.isCompleted) abort.complete();
+      throw ApiException(
+          'Analysis timed out. Check Server connection and try again.');
+    } on SocketException {
+      throw ApiException('Cannot reach the server. Check Server connection.');
+    } on http.ClientException {
+      throw ApiException(
+          'Connection interrupted. Check Server connection and try again.');
+    } on FileSystemException {
+      throw ApiException(
+          'The recording could not be read. Please record this ayah again.');
+    } on FormatException {
+      throw ApiException(
+          'Invalid server response or address. Check Server connection.');
+    }
   }
 }

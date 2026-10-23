@@ -1,12 +1,17 @@
 __pycache__/
 .pytest_cache/
+.runtime/
 .venv/
 *.pyc
 .env
-models/
+/models/
 data/full/
 *.npz
 
 quranify.db
 mobile/build/
 mobile/.dart_tool/
+benchmarks/audio_cache/
+dist/
+*.apk
+mobile/android/app/src/main/res/mipmap-*/

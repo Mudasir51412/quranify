@@ -1,0 +1,151 @@
+{
+  "engine": "faster-whisper",
+  "device": "cuda",
+  "cases": [
+    {
+      "ayah": 5,
+      "case": "reference",
+      "target_word_index": null,
+      "target_word": null,
+      "seconds": 0.305,
+      "transcription": "إِيَّاكَ نَعْبُدُ وإِنْيَا كَنَا اسْتَعِينُ",
+      "states": [
+        "matched",
+        "matched",
+        "retry",
+        "retry"
+      ],
+      "mistakes": {},
+      "edit_detected": null
+    },
+    {
+      "ayah": 5,
+      "case": "synthetic_word_omission",
+      "target_word_index": 1,
+      "target_word": "نَعْبُدُ",
+      "seconds": 0.213,
+      "transcription": "إِيَّاكَ وَإِنْ يَا كَنَا اسْتَعِينَ",
+      "states": [
+        "matched",
+        "skipped",
+        "retry",
+        "retry"
+      ],
+      "mistakes": {
+        "1": {
+          "type": "skipped",
+          "reason": "word"
+        }
+      },
+      "edit_detected": true
+    },
+    {
+      "ayah": 5,
+      "case": "synthetic_word_substitution",
+      "target_word_index": 1,
+      "target_word": "نَعْبُدُ",
+      "seconds": 0.178,
+      "transcription": "إِيَّاكَ نَسْتَعِينَ",
+      "states": [
+        "matched",
+        "skipped",
+        "skipped",
+        "retry"
+      ],
+      "mistakes": {
+        "1": {
+          "type": "skipped",
+          "reason": "word"
+        },
+        "2": {
+          "type": "skipped",
+          "reason": "word"
+        }
+      },
+      "edit_detected": true
+    },
+    {
+      "ayah": 6,
+      "case": "reference",
+      "target_word_index": null,
+      "target_word": null,
+      "seconds": 0.215,
+      "transcription": "اهدِنَـــا الصِّرَاطَ المُستَقِيمَ",
+      "states": [
+        "matched",
+        "matched",
+        "matched"
+      ],
+      "mistakes": {},
+      "edit_detected": null
+    },
+    {
+      "ayah": 6,
+      "case": "synthetic_word_omission",
+      "target_word_index": 1,
+      "target_word": "ٱلصِّرَٰطَ",
+      "seconds": 0.181,
+      "transcription": "اهدِنَـــا المُستَقِيمَ",
+      "states": [
+        "matched",
+        "skipped",
+        "matched"
+      ],
+      "mistakes": {
+        "1": {
+          "type": "skipped",
+          "reason": "word"
+        }
+      },
+      "edit_detected": true
+    },
+    {
+      "ayah": 7,
+      "case": "reference",
+      "target_word_index": null,
+      "target_word": null,
+      "seconds": 0.426,
+      "transcription": "صِرَاطَ الَّذِينَ أَنعَمتَ عَلَيهِمْ غَيرِ المَغضُوبِ عَمَيْهِكُمْ وَلاَ الضَّالِّينُ",
+      "states": [
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "retry",
+        "matched",
+        "retry"
+      ],
+      "mistakes": {},
+      "edit_detected": null
+    },
+    {
+      "ayah": 7,
+      "case": "synthetic_word_omission",
+      "target_word_index": 6,
+      "target_word": "عَلَيْهِمْ",
+      "seconds": 0.334,
+      "transcription": "صِرَاطَ الَّذِينَ أَنعَمتَ عَلَيهِمْ غَيرِ المَغضُوبِ وَلاَ الضَّالِّينِ",
+      "states": [
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "matched",
+        "skipped",
+        "matched",
+        "retry"
+      ],
+      "mistakes": {
+        "6": {
+          "type": "skipped",
+          "reason": "word"
+        }
+      },
+      "edit_detected": true
+    }
+  ],
+  "caveat": "Professional Al-Fatiha clips and synthetic edits; no validation of the user's microphone or pronunciation. The recognizer may still reconstruct unheard text."
+}

@@ -66,8 +66,7 @@ class HighlightedReference extends StatelessWidget {
                   decoration: marks[i] == WordMark.skipped
                       ? TextDecoration.lineThrough
                       : null,
-                  fontWeight:
-                      marks[i] == WordMark.ok ? null : FontWeight.bold,
+                  fontWeight: marks[i] == WordMark.ok ? null : FontWeight.bold,
                 ),
               ),
           ],
@@ -86,17 +85,41 @@ class MistakeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSkip = mistake.type == 'skipped';
+    final details = <String>[];
+    if (mistake.expectedShadda != null &&
+        mistake.heardShadda != null &&
+        mistake.expectedShadda != mistake.heardShadda) {
+      details.add(mistake.expectedShadda!
+          ? 'missing Shadda (doubling)'
+          : 'unexpected Shadda (doubling)');
+    }
+    if (mistake.expectedVowel != mistake.heardVowel) {
+      details.add(
+          'expected ${vowelLabel(mistake.expectedVowel)}, heard ${vowelLabel(mistake.heardVowel)}');
+    }
+    final feedback = isSkip
+        ? 'Missed'
+        : mistake.type == 'incorrect'
+            ? 'Wrong'
+            : 'Wrong · ${details.isEmpty ? 'pronunciation needs review' : details.join('; ')}.';
     return ListTile(
-      leading: Icon(isSkip ? Icons.remove_circle : Icons.spellcheck,
-          color: isSkip ? Colors.red : Colors.orange.shade800),
+      leading: Icon(
+          mistake.corrected
+              ? Icons.check_circle_outline
+              : isSkip
+                  ? Icons.remove_circle
+                  : Icons.spellcheck,
+          color: mistake.corrected
+              ? Colors.green
+              : isSkip
+                  ? Colors.red
+                  : Colors.orange.shade800),
       title: Directionality(
         textDirection: TextDirection.rtl,
         child: Text(mistake.referenceWord, style: arabicStyle(size: 20)),
       ),
-      subtitle: Text(isSkip
-          ? 'This word was skipped.'
-          : 'Vowel mistake: expected ${vowelLabel(mistake.expectedVowel)}, '
-              'heard ${vowelLabel(mistake.heardVowel)}.'),
+      subtitle: Text('$feedback'
+          '${mistake.corrected ? ' Corrected during recitation.' : ''}'),
       trailing: onHearCorrection == null
           ? null
           : IconButton(

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../services/api_client.dart';
 import '../state/app_state.dart';
+import '../widgets/server_connection.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   Future<void> _submit() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -25,9 +27,11 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await context.read<AppState>().login(_email.text.trim(), _password.text);
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      setState(() => _error = 'Something went wrong. Please try again.');
+      if (mounted) {
+        setState(() => _error = 'Something went wrong. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -44,7 +48,8 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Icon(Icons.menu_book, size: 64, color: Colors.green),
               const SizedBox(height: 12),
-              Text('Quranify', style: Theme.of(context).textTheme.headlineMedium),
+              Text('Quranify',
+                  style: Theme.of(context).textTheme.headlineMedium),
               const Text('Your AI Quran Tutor'),
               const SizedBox(height: 32),
               TextField(
@@ -75,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 child: const Text('New here? Create an account'),
               ),
+              const ServerConnectionButton(),
             ],
           ),
         ),
@@ -99,6 +105,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _error;
 
   Future<void> _submit() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -112,9 +119,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
       if (mounted) Navigator.of(context).pop();
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      setState(() => _error = 'Something went wrong. Please try again.');
+      if (mounted) {
+        setState(() => _error = 'Something went wrong. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -166,6 +175,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               onPressed: _busy ? null : _submit,
               child: Text(_busy ? 'Creating…' : 'Create Account'),
             ),
+            const ServerConnectionButton(),
           ],
         ),
       ),

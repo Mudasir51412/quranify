@@ -10,7 +10,9 @@ import '../services/api_client.dart';
 /// Global app state: auth session, API URL, and offline caches
 /// (Quran text and daily content cached for offline reading — Module 8).
 class AppState extends ChangeNotifier {
-  final ApiClient api = ApiClient(baseUrl: AppConfig.defaultApiUrl);
+  final ApiClient api;
+  AppState({ApiClient? api})
+      : api = api ?? ApiClient(baseUrl: AppConfig.defaultApiUrl);
   UserProfile? user;
   bool loading = true;
 
@@ -25,9 +27,14 @@ class AppState extends ChangeNotifier {
       api.token = token;
       try {
         user = await api.me();
-      } catch (_) {
-        api.token = null;
-        await prefs.remove('token');
+      } catch (error) {
+        // A server restart or network failure does not invalidate a session.
+        // Only an explicit authentication rejection should discard the token.
+        if (error is ApiException &&
+            (error.statusCode == 401 || error.statusCode == 403)) {
+          api.token = null;
+          await prefs.remove('token');
+        }
       }
     }
     loading = false;
@@ -102,8 +109,18 @@ class AppState extends ChangeNotifier {
 
   Future<void> cacheSurahDetail(SurahDetail d) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('cache_surah_${d.number}',
-        jsonEncode({'number': d.number, 'name_ar': d.nameAr, 'name_en': d.nameEn, 'bismillah': d.bismillah, 'ayahs': d.ayahs.map((a) => {'ayah': a.ayah, 'text': a.text, 'word_count': a.wordCount}).toList()}));
+    await prefs.setString(
+        'cache_surah_${d.number}',
+        jsonEncode({
+          'number': d.number,
+          'name_ar': d.nameAr,
+          'name_en': d.nameEn,
+          'bismillah': d.bismillah,
+          'ayahs': d.ayahs
+              .map((a) =>
+                  {'ayah': a.ayah, 'text': a.text, 'word_count': a.wordCount})
+              .toList()
+        }));
   }
 
   Future<SurahDetail?> loadCachedSurahDetail(int num) async {

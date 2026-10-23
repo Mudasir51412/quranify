@@ -155,6 +155,102 @@ def test_analyze_detects_harakat_error():
     assert len(errs) >= 1
     assert any(e["expected_vowel"] == "kasra" and e["heard_vowel"] == "fatha" for e in errs)
 
+
+def test_shadda_error_reaches_the_client_with_its_actual_reason():
+    headers = register()
+    words = ayah_text(1, 1).split()
+    words[-1] = words[-1].replace("\u0651", "")
+    fake.text = " ".join(words)
+    body = analyze(headers, 1, 1).json()
+    errors = body["harakat_errors"]
+    assert any(e["expected_shadda"] and not e["heard_shadda"]
+               and e["expected_vowel"] == e["heard_vowel"] for e in errors)
+
+
+def test_phone_fatiha_example_is_a_pending_word_not_a_confirmed_error():
+    headers = register()
+    fake.text = "الْحَمْدُ للّهِ رَبِّ الْآلَمِينَ"
+    body = analyze(headers, 1, 2).json()
+    assert body["status"] == "retry"
+    assert body["retry_words"] == [3]
+    assert body["confirmed_words"] == [0, 1, 2]
+    assert body["skips"] == [] and body["harakat_errors"] == []
+    assert body["incorrect_words"] == []
+
+
+def test_correct_repetition_replaces_the_earlier_wrong_vowel():
+    headers = register()
+    words = ayah_text(112, 1).split()
+    fake.text = " ".join(words[:2] + [words[2].replace("هُ", "هَ"), words[2], words[3]])
+    response = analyze(headers, 112, 1)
+    assert response.status_code == 200
+    assert response.json()["harakat_errors"] == []
+    assert response.json()["skips"] == []
+
+
+def test_analysis_uses_the_previous_raw_transcription_as_its_baseline(monkeypatch):
+    from app.services.transcriber import Recognition
+    headers = register()
+    reference = ayah_text(1, 5)
+    words = reference.split()
+    fake.text = " ".join(words[:1] + words[2:])
+    monkeypatch.setattr(fake, "transcribe_for_review", lambda *args, **kwargs: Recognition(reference), raising=False)
+    body = analyze(headers, 1, 5).json()
+    assert any(item["index"] == 1 for item in body["skips"])
+
+
+def test_phrase_retry_does_not_mark_the_rest_of_the_ayah_missed():
+    headers = register()
+    words = ayah_text(112, 1).split()
+    fake.text = " ".join(words[1:3])
+    response = client.post("/analyze", headers=headers,
+        data={"surah": 112, "ayah": 1, "word_start": 1, "word_end": 2},
+        files={"audio": ("phrase.wav", make_wav(), "audio/wav")})
+    assert response.status_code == 200
+    assert response.json()["skips"] == []
+    assert response.json()["word_start"] == 1
+    assert response.json()["word_end"] == 2
+
+
+def test_another_decode_cannot_clear_an_observed_vowel_error(monkeypatch):
+    from app.services.transcriber import Recognition
+    headers = register()
+    reference = ayah_text(112, 1)
+    fake.text = reference.replace("هُ أَ", "هَ أَ")
+    review_calls = []
+    def review(audio, *, verify=False):
+        review_calls.append(verify)
+        return Recognition(reference)
+    monkeypatch.setattr(fake, "transcribe_for_review", review, raising=False)
+    body = analyze(headers, 112, 1).json()
+    assert body["status"] == "ok"
+    assert body["retry_words"] == []
+    assert body["harakat_errors"][0]["word_index"] == 2 and body["skips"] == []
+    assert review_calls == []
+    history = client.get(f"/history/{body['session_id']}", headers=headers).json()
+    assert history["total_words"] == 4 and history["correct_words"] == 3
+    badges = client.get("/gamification", headers=headers).json()["badges"]
+    assert not next(b for b in badges if b["id"] == "perfect_ayah")["earned"]
+
+
+def test_empty_recognition_has_no_saved_penalties():
+    headers = register()
+    fake.text = ""
+    body = analyze(headers, 112, 1).json()
+    assert body["status"] == "retry" and body["retry_words"] == [0, 1, 2, 3]
+    assert body["session_id"] is None and body["total_words"] == 0
+    assert body["skips"] == [] and body["harakat_errors"] == []
+    assert client.get("/history", headers=headers).json()["count"] == 0
+
+
+def test_phrase_ranges_are_validated_before_recognition():
+    headers = register()
+    for start, end in [(-1, 1), (2, 1), (1, 4)]:
+        response = client.post("/analyze", headers=headers,
+            data={"surah": 112, "ayah": 1, "word_start": start, "word_end": end},
+            files={"audio": ("phrase.wav", make_wav(), "audio/wav")})
+        assert response.status_code == 400
+
 def test_f06_silent_audio_rejected_and_not_saved():
     headers = register()
     fake.text = ayah_text(112, 1)
@@ -178,7 +274,9 @@ def test_analyze_unknown_ayah():
 
 # --- Correction audio contract (F05) ---
 
-def test_correction_audio_word_and_context():
+def test_correction_audio_word_and_context(monkeypatch):
+    monkeypatch.setattr("app.routers.analyze.verse_audio", lambda *args:
+        ("https://verses.quran.com/Alafasy/mp3/112001.mp3", ((30, 390), (400, 790), (800, 1640), (1650, 2300))))
     headers = register()
     r = client.get("/correction_audio", headers=headers,
                    params={"surah": 112, "ayah": 1, "word": 0})
@@ -186,9 +284,21 @@ def test_correction_audio_word_and_context():
     body = r.json()
     assert body["word_index"] == 0 and body["prev_word"] is None
     assert body["next_word"] is not None
+    assert body["start_ms"] == 30 and body["end_ms"] == 790
+    assert body["word_start"] == 0 and body["word_end"] == 1
     bad = client.get("/correction_audio", headers=headers,
                      params={"surah": 112, "ayah": 1, "word": 99})
     assert bad.status_code == 400
+
+
+def test_missing_phrase_timings_do_not_return_whole_ayah_audio(monkeypatch):
+    def unavailable(*args):
+        raise ValueError("No word timings")
+    monkeypatch.setattr("app.routers.analyze.verse_audio", unavailable)
+    response = client.get("/correction_audio", headers=register(),
+                          params={"surah": 112, "ayah": 1, "word": 2})
+    assert response.status_code == 503
+    assert "audio_url" not in response.json()
 
 
 # --- Privacy (F10) ---

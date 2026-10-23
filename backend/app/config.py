@@ -1,5 +1,6 @@
 """App settings — environment-driven, safe defaults for local dev only."""
 import os
+from pathlib import Path
 
 
 class Settings:
@@ -13,6 +14,11 @@ class Settings:
     model_id: str = os.environ.get("QURANIFY_MODEL_ID", "basharalrfooh/whisper-small-quran")
     # Transcriber: "whisper" (real model, lazy-loaded) or "fake" (tests/dev)
     transcriber: str = os.environ.get("QURANIFY_TRANSCRIBER", "whisper")
+    inference_device: str = os.environ.get("QURANIFY_DEVICE", "auto")  # auto | cpu | cuda
+    inference_engine: str = os.environ.get("QURANIFY_ENGINE", "auto")
+    warm_model_on_startup: bool = os.environ.get("QURANIFY_WARMUP", "1").strip().lower() not in {"0", "false", "no"}
+    optimized_model_dir: str = os.environ.get(
+        "QURANIFY_LIVE_MODEL", str(Path(__file__).resolve().parents[2] / "models" / "whisper-small-quran-ct2"))
 
 
 settings = Settings()

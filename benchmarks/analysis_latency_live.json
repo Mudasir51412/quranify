@@ -1,0 +1,29 @@
+{
+  "inference": {
+    "status": "ready",
+    "engine": "faster-whisper",
+    "device": "cuda"
+  },
+  "requests": [
+    {
+      "surah": 112,
+      "ayah": 1,
+      "total_ms": 426.0,
+      "status": "ok"
+    },
+    {
+      "surah": 112,
+      "ayah": 3,
+      "total_ms": 476.7,
+      "status": "ok"
+    },
+    {
+      "surah": 112,
+      "ayah": 4,
+      "total_ms": 535.3,
+      "status": "ok"
+    }
+  ],
+  "temporary_account_removed": true,
+  "caveat": "Actual localhost HTTP uploads of short professional reference clips; excludes phone recording finalization and Wi-Fi upload."
+}

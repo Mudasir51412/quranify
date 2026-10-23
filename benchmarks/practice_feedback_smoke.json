@@ -1,0 +1,109 @@
+{
+  "engine": "faster-whisper",
+  "device": "cuda",
+  "uploads": [
+    {
+      "case": "professional_reference",
+      "seconds": 0.244,
+      "session_id": 1,
+      "status": "ok",
+      "reason": null,
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "reference": "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "total_words": 4,
+      "word_start": 0,
+      "word_end": 3,
+      "confirmed_words": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "case": "synthetic_slow_tempo_0.65",
+      "seconds": 0.229,
+      "session_id": 2,
+      "status": "ok",
+      "reason": null,
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "reference": "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "total_words": 4,
+      "word_start": 0,
+      "word_end": 3,
+      "confirmed_words": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "case": "synthetic_ayah_restart",
+      "seconds": 0.264,
+      "session_id": 3,
+      "status": "ok",
+      "reason": null,
+      "transcription": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "reference": "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "total_words": 4,
+      "word_start": 0,
+      "word_end": 3,
+      "confirmed_words": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    },
+    {
+      "case": "timed_reference_phrase_only",
+      "seconds": 0.488,
+      "session_id": 4,
+      "status": "ok",
+      "reason": null,
+      "transcription": "قُلْ هُوَ اللَّهُ",
+      "reference": "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+      "total_words": 3,
+      "word_start": 0,
+      "word_end": 2,
+      "confirmed_words": [
+        0,
+        1,
+        2
+      ],
+      "retry_words": [],
+      "skips": [],
+      "harakat_errors": [],
+      "incorrect_words": []
+    }
+  ],
+  "phrase_playback": {
+    "surah": 112,
+    "ayah": 1,
+    "word_index": 1,
+    "word": "هُوَ",
+    "prev_word": "قُلْ",
+    "next_word": "ٱللَّهُ",
+    "word_start": 0,
+    "word_end": 2,
+    "phrase": "قُلْ هُوَ ٱللَّهُ",
+    "audio_url": "https://verses.quran.com/Alafasy/mp3/112001.mp3",
+    "start_ms": 30,
+    "end_ms": 1640,
+    "phrase_audio_available": true
+  },
+  "caveat": "Professional reference clips and synthetic tempo/restart variants; no learner microphone or physical-phone playback test."
+}
