@@ -28,6 +28,14 @@ class SpokenWord:
     text: str
     start: float
     end: float
+    reliable: bool = True
+    # ASR spelling and token confidence alone cannot establish pronunciation.
+    pronunciation_evidence: bool = False
+    # A trailing hypothesis may be released on a pause before it is corroborated.
+    stable: bool = True
+    # Decoder evidence just below the ordinary word-confidence gate, from a
+    # speech segment that still meets both existing segment-quality checks.
+    borderline: bool = False
 
 
 @dataclass(frozen=True)

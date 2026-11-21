@@ -1,6 +1,20 @@
 /// Data models mirroring the Quranify FastAPI responses.
 library;
 
+enum RecitationDifficulty {
+  beginner('Beginner'),
+  intermediate('Intermediate'),
+  expert('Expert');
+
+  const RecitationDifficulty(this.label);
+  final String label;
+
+  static RecitationDifficulty fromStored(Object? value) => values.firstWhere(
+        (difficulty) => difficulty.name == value,
+        orElse: () => expert,
+      );
+}
+
 class UserProfile {
   final int id;
   final String email;

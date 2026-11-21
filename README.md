@@ -1,52 +1,67 @@
 # Quranify — AI Quran Tutor (MVP, built from scratch)
 
-Records one Ayah at a time, with a Hifz toggle to hide the displayed text.
-After pressing Pause, the recording is uploaded for feedback:
-**Missed** words and **Wrong** words/basic Harakat feedback, with
-phrase correction audio and targeted retries. Built from the Quranify final report (Faizan Ahmed &
+Streams a selected Quran passage for live word feedback in Normal and Hifz
+modes. Built from the Quranify final report (Faizan Ahmed &
 Hafiz Talal Zeb Abbasi, COMSATS) — see `MVP-Build-Plan.md` for scope
 and for every tech change from the report, with reasons.
 
 ## Recite and Hifz
 
-The Recite tab loads the Arabic passage before the microphone starts. Choose a
-Surah and starting Ayah. All remaining Ayahs are displayed, with text visible by
-default even for Hafiz accounts. Optionally press **Hifz · Hide text**.
-Press **Recite beside the Ayah** you want to practice, read that Ayah, then press
-**Pause**. Pause ends the clip and uploads it to `POST /analyze`. Feedback appears
-directly beneath that Ayah; **Try again** starts a fresh attempt for that Ayah.
-For individual issues, **Try this phrase** records only the displayed short phrase.
-Its **Listen** button plays that same phrase using verified reference word timings.
+Choose a surah, starting ayah, and mode. The Recite tab displays the rest of
+the surah in one right-to-left passage with round ayah markers. Normal shows
+the text up front. Hifz reveals recognized words and confirmed mistake
+targets as you recite.
 
-- Missed words appear faintly; wrong words receive a light red highlight.
-  In Hifz these words are revealed after analysis; other reference words stay hidden.
-- Only one recording or analysis can run at a time. There is no live analysis,
-  automatic Ayah advance, or continuous listening in the app.
-- A full attempt checks the selected Ayah. A phrase retry checks only its inclusive,
-  zero-based `word_start` / `word_end` range; words outside that range are not scored.
-- Immediate repetitions and complete phrase restarts are allowed. A correct
-  repeated word replaces its preceding attempt. Split/stretched tokens with insufficient evidence request
-  another attempt rather than producing a false word-error highlight.
-- Unreliable recognition says **Please try this phrase again**. There is no
-  "unclear" word category. Unresolved words are excluded from accuracy scoring;
-  a completely unresolved attempt creates no scored session.
-  The summary includes **1 word to retry** (or its plural), identifies each target
-  word, and uses a dotted underline for those targets. A retry-only result does
-  not show a misleading **0 missed · 0 wrong** all-clear summary. Confirmed
-  missed/wrong counts and pending retries appear together when both exist.
-- Shadda feedback describes missing or unexpected consonant doubling. It does
-  not report identical expected/heard vowels as if the vowel itself were wrong.
-- Audio is recorded as a 16 kHz mono WAV. Temporary clips are removed after submission.
-- Upload/analysis requests time out after two minutes and allow another attempt.
-- Leaving the Recite tab or backgrounding cancels an unfinished recording without
-  submitting it. An analysis already submitted may finish in the background.
-- Retrying an Ayah replaces its displayed feedback; other Ayahs keep their results.
-  Phrase retries preserve feedback while recording, clear only successfully
-  reassessed errors, and keep unresolved errors elsewhere. Historical attempts
-  remain separate records; phrase practice does not earn a perfect-Ayah bonus.
-- Listen requires public reference timing metadata (cached on the backend). If
-  matching timings are unavailable, it reports a playback error without playing
-  the entire Ayah. Practice phrases include neighboring context and at most five words.
+Choose **Recitation difficulty** under **Profile → Settings**. The app uses
+that choice for the whole Normal or Hifz session, including after Pause,
+reference playback, and targeted retries. **Expert** is the default and
+uses the original scoring and feedback.
+
+- **Beginner** can verify stable borderline exact words and common single
+  spelling changes when timed exact words establish their position. It can
+  use one exact neighbor at a unique position for a well-supported word,
+  including short words. A borderline near-match instead needs exact speech
+  on both sides in the same ayah. It can repair exact word joins and splits
+  with corroboration, and can bridge a timed ayah handoff when the words on
+  both sides establish the boundary. An isolated retry can pass on its first
+  supported attempt for exact words and selected longer-word variations.
+- **Intermediate** typically needs two exact neighbors or a separate
+  supported repeat. A configured consonant substitution on a word of four
+  or more letters needs exact speech on both sides, with three exact
+  neighbors when the evidence crosses an ayah boundary. A selected near
+  retry needs two independently supported attempts.
+
+The lower modes consider internal ا, و, or ي spelling differences, limited
+letter echoes, and single substitutions from the pairs ص/س, ض/ظ, ط/ت, ذ/ز,
+ث/ت, ق/ك, and ح/ه. The Quran vocabulary protects different attested words.
+A live decoder split such as `ولا` plus a 60 ms `م` can count for `ولم` in
+Beginner when exact speech surrounds it. The standalone `ولا` remains a
+different word. Segment quality and stable timing still apply. Confirmed
+omissions and different words retain the correction gate.
+
+On 34 fixed recognizer-output cases chosen before the wider scoring change,
+Beginner went from 27 stops to 2, Intermediate from 28 to 15, and Expert
+stayed at 33. The new counts equal 6%, 45%, and 100% of Expert's stops.
+A stop means the named word or handoff remained unverified after one reading
+or targeted retry. These counts describe controlled fixture behavior.
+
+Tap **Recite** once and follow the current ayah, marked in gray. Words in the
+next ayah count when the current one has been verified. Tap **Pause** to release
+the microphone, then **Resume** to continue with the same ayah and marks.
+**End session** saves the attempt early. The app ends the session when the
+passage is complete or when you leave the Recite tab or background the app.
+
+- The live word results are **Correct** in green, **Incorrect** in red,
+  and **Missed** in yellow. Tap a flagged word to retry that word by itself,
+  then pause briefly. A successful retry turns it green and clears the
+  correction. Saved history keeps track of the correction.
+- A reliably identified written word stays green when the transcript varies
+  in vowels or accent. A stable substitution with a reliable following
+  word can show **Incorrect**. Unresolved words receive no result, and
+  Hifz keeps them hidden. Pronunciation errors require separate evidence.
+- Tap the speaker to hear only the marked word using verified reference
+  timings. The microphone stays off during playback. Use **Retry ayah**
+  to reread the current ayah if the remaining audio could not be identified.
 
 Use the existing `run_backend.bat` launcher, or run this from `backend/`:
 
@@ -92,11 +107,9 @@ These timings exclude phone recording finalization and Wi-Fi upload, and do not
 predict latency for longer or difficult learner recordings. Error confirmation
 and retry checks remain enabled.
 
-The backend still includes the experimental streaming and continuous endpoints
-for compatibility; the mobile Recite tab does not use them. GPU selection also
-applies to single-Ayah uploads. The model can misrecognize vowels; highlights
-are feedback to review, not a guaranteed pronunciation diagnosis.
-The Recite endpoint uses the original unprompted transcription and whole-phrase
+The mobile Recite tab uses the authenticated `/recite/live` WebSocket.
+GPU selection also applies to single-ayah uploads. The `/analyze` upload
+endpoint uses the original unprompted transcription and whole-phrase
 comparison path again. It does not use a second decode to fill omissions or
 erase errors, and uncertainty on one word cannot suppress mistakes elsewhere.
 Leniency is limited to immediate repetitions, anchored token splits, repeated
@@ -146,6 +159,14 @@ Run: `cd backend && uvicorn app.main:app --reload` → docs at `/docs`.
 - `POST /auth/register` · `POST /auth/login` · `GET /auth/me` · `POST /auth/logout`
   — PBKDF2 password hashing + JWT, actually implemented and tested
 - `GET /quran/surahs` · `GET /quran/surah/{num}` · `GET /available_surahs`, `GET /surah/{num}` (report aliases)
+- `WS /recite/live` — JWT in the start message and binary 16 kHz mono PCM16
+  after `ready`. `feedback` reports word states, and `stop` returns a saved
+  `finished` review for attempts with progress. Set `guided` to `true` in
+  the start message for guided practice. Wait for `paused` before playing
+  reference audio, and for `resumed` before sending PCM again. `resume` can
+  include the current `ayah` and a zero-based `word_index` to target a flagged
+  word, or `replay_ayah: true` to retry the current ayah. Send `ping` during
+  a long pause to keep the same session open.
 - `POST /analyze` (auth, multipart audio + surah + ayah) — guardrails reject
   invalid audio *before* scoring and save nothing for it; results persist
   as sessions + mistake records
@@ -194,21 +215,18 @@ now maps **to** alef. Effect on v0: WER 12.5% → 9.2%, CER 1.26% → 0.50%.
 Trade-off (الرحمن → الرحمان on the reference side) is absorbed by fuzzy
 matching and produced no false skips. Covered by tests 04 + 13.
 
-## Cloning this repo — one setup note
+## Android setup from a clean checkout
 
-Binary platform assets (launcher icons, `gradle-wrapper.jar`, web icons)
-are not stored in git. After cloning, regenerate the missing platform
-files once from `mobile/`:
+Install Flutter and the Android toolchain, then check them with `flutter doctor`.
+The repository includes the Android launcher icons and manifest. The Flutter
+build creates the local SDK settings and supplies the Gradle wrapper from its
+tool cache.
 
+```sh
+cd mobile
+flutter pub get
+flutter build apk --debug
 ```
-flutter create . --platforms=web,android
-```
-
-This only *adds* missing platform files — your `lib/` code and
-`AndroidManifest.xml` (which carries the mic/internet permissions) are
-already in the repo; check `git status` afterwards and restore the
-manifest from git if the generator touched it
-(`git checkout -- android/app/src/main/AndroidManifest.xml`).
 
 ## Flutter app (`mobile/`)
 
@@ -221,12 +239,11 @@ Complete app covering all 8 report modules:
   and Reading (continuous Mushaf-style) views, font-size control,
   listen-to-Ayah, save reading position, and a **Hide text (Hifz test)**
   mode that masks Ayahs until tapped
-- **Recite** — full passage from the starting Ayah, per-Ayah Recite/Pause controls,
-  optional Hifz, feedback after submission with faint skipped-word and light red
-  vowel highlights, plus independent retries and reference audio
+- **Recite** — full passage from the starting ayah, continuous Normal and Hifz
+  practice, live word-level corrections, and timed reference audio
 - **Progress** — overview stats, mistakes-by-type, accuracy trend,
   badges grid, full session history with detail dialogs
-- **Profile** — name/mode/notification settings, API URL override
+- **Profile** — name, mode, recitation difficulty, notifications, API URL override
   (for emulator/LAN testing), offline notes, sign out
 - **Offline** — Quran lists/texts opened once are cached on-device and
   stay readable offline; analysis honestly requires the server in this
@@ -242,7 +259,7 @@ flutter test        # unit + widget tests
 flutter build web   # VM-verified build target
 ```
 
-## Tests — backend 146 passed; Flutter 33 passed
+## Tests
 
 The suite reproduces the report's 50 cases (§5.1–5.4). Their run was
 47/50 with a footer wrongly claiming 50/50. Ours is 55/55 (50 cases +

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/models.dart';
 import '../services/api_client.dart';
 import '../state/app_state.dart';
 import '../widgets/common.dart';
@@ -16,6 +17,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _apiUrl;
   late TextEditingController _name;
   bool _saving = false;
+  bool _savingDifficulty = false;
 
   @override
   void initState() {
@@ -47,6 +49,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _setDifficulty(RecitationDifficulty? difficulty) async {
+    if (difficulty == null) return;
+    final state = context.read<AppState>();
+    if (state.recitationDifficulty == difficulty) return;
+    setState(() => _savingDifficulty = true);
+    try {
+      await state.setRecitationDifficulty(difficulty);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not save recitation difficulty.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingDifficulty = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -62,7 +83,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Center(
             child: Column(
               children: [
-                const CircleAvatar(radius: 36, child: Icon(Icons.person, size: 36)),
+                const CircleAvatar(
+                    radius: 36, child: Icon(Icons.person, size: 36)),
                 const SizedBox(height: 8),
                 Text(user.name.isEmpty ? 'Quranify User' : user.name,
                     style: Theme.of(context).textTheme.titleLarge),
@@ -93,6 +115,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _saving ? null : (s) => _patch({'mode': s.first}),
                     ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Recitation difficulty',
+                    helperText: 'Applies to new Normal and Hifz sessions.',
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<RecitationDifficulty>(
+                      key: const Key('recitation-difficulty'),
+                      isExpanded: true,
+                      value: state.recitationDifficulty,
+                      items: [
+                        for (final difficulty in RecitationDifficulty.values)
+                          DropdownMenuItem(
+                            value: difficulty,
+                            child: Text(difficulty.label),
+                          ),
+                      ],
+                      onChanged: _savingDifficulty ? null : _setDifficulty,
+                    ),
+                  ),
                 ),
                 SwitchListTile(
                   title: const Text('Daily reminder notifications'),

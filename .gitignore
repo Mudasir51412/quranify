@@ -14,4 +14,3 @@ mobile/.dart_tool/
 benchmarks/audio_cache/
 dist/
 *.apk
-mobile/android/app/src/main/res/mipmap-*/

@@ -1,1 +1,1 @@
-export 'ayah_recite_screen.dart';
+export 'live_recite_screen.dart';

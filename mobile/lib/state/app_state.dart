@@ -10,16 +10,21 @@ import '../services/api_client.dart';
 /// Global app state: auth session, API URL, and offline caches
 /// (Quran text and daily content cached for offline reading — Module 8).
 class AppState extends ChangeNotifier {
+  static const _difficultyKey = 'recitation_difficulty';
   final ApiClient api;
   AppState({ApiClient? api})
       : api = api ?? ApiClient(baseUrl: AppConfig.defaultApiUrl);
   UserProfile? user;
   bool loading = true;
+  RecitationDifficulty _recitationDifficulty = RecitationDifficulty.expert;
+  RecitationDifficulty get recitationDifficulty => _recitationDifficulty;
 
   bool get isLoggedIn => api.token != null && user != null;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
+    _recitationDifficulty =
+        RecitationDifficulty.fromStored(prefs.get(_difficultyKey));
     final url = prefs.getString('api_url');
     if (url != null && url.isNotEmpty) api.baseUrl = url;
     final token = prefs.getString('token');
@@ -87,6 +92,15 @@ class AppState extends ChangeNotifier {
     api.baseUrl = url.trim();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('api_url', api.baseUrl);
+    notifyListeners();
+  }
+
+  Future<void> setRecitationDifficulty(RecitationDifficulty difficulty) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(_difficultyKey, difficulty.name)) {
+      throw StateError('Could not save recitation difficulty.');
+    }
+    _recitationDifficulty = difficulty;
     notifyListeners();
   }
 

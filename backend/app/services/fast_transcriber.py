@@ -78,7 +78,16 @@ class FasterWhisperTranscriber:
     def transcribe_words(self, audio: np.ndarray) -> list[SpokenWord]:
         with self._lock:
             duration = len(audio) / 16000
-            return [SpokenWord(w.word.strip(), w.start, min(w.end, duration))
-                    for segment in self._segments(audio, True) for w in segment.words or []
-                    if w.word.strip() and 0 <= w.start < w.end <= duration + 0.1
-                    and w.end - w.start >= 0.04]
+            words = []
+            for segment in self._segments(audio, True):
+                speech_supported = segment.avg_logprob >= -0.9 and segment.no_speech_prob < 0.6
+                for w in segment.words or []:
+                    text = w.word.strip()
+                    if (text and 0 <= w.start < w.end <= duration + 0.1
+                            and w.end - w.start >= 0.04):
+                        words.append(SpokenWord(
+                            text, w.start, min(w.end, duration),
+                            reliable=w.probability >= 0.65 and speech_supported,
+                            borderline=0.50 <= w.probability < 0.65 and speech_supported,
+                        ))
+            return words

@@ -79,7 +79,8 @@ def extract_pairs(word: str) -> list[LetterPair]:
     return pairs
 
 
-def compare_word_harakat(reference_word: str, heard_word: str) -> tuple[list[HarakatError], int]:
+def compare_word_harakat(reference_word: str, heard_word: str, *,
+                          allow_pause: bool = False) -> tuple[list[HarakatError], int]:
     """
     Returns (errors, uncertain_count).
     uncertain_count = aligned letters where the HEARD side has no vowel
@@ -98,6 +99,14 @@ def compare_word_harakat(reference_word: str, heard_word: str) -> tuple[list[Har
         for k in range(block.size):
             rp = ref_pairs[block.a + k]
             hp = heard_pairs[block.b + k]
+            if (allow_pause and block.a + k == len(ref_pairs) - 1
+                    and block.b + k == len(heard_pairs) - 1
+                    and rp.vowel in {"fatha", "damma", "kasra"} and hp.vowel == "sukun"
+                    and rp.shadda == hp.shadda):
+                # A word-final sukun may be a valid stop. It cannot confirm
+                # the connected vowel, so keep its evidence inconclusive.
+                uncertain += 1
+                continue
             if hp.vowel is None and rp.vowel is not None:
                 uncertain += 1
                 continue

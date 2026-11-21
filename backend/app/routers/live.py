@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import replace
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -10,12 +11,13 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
+from ..ai.guided import GuidedRecitation
 from ..ai.live import LiveRecitation, StableWords
+from ..ai.recitation_difficulty import RecitationDifficulty
 from ..ai.reference import load_reference
 from ..db import get_db
 from ..models import MistakeRecord, RecitationSession
 from ..security import get_current_user
-from ..services.transcriber import SpokenWord
 from .analyze import get_transcriber
 
 router = APIRouter(tags=["live recitation"])
@@ -29,6 +31,8 @@ class StartRecitation(BaseModel):
     token: str = Field(min_length=1, max_length=4096)
     surah: int = Field(ge=1, le=114, strict=True)
     from_ayah: int = Field(ge=1, le=286, strict=True)
+    guided: bool = False
+    difficulty: RecitationDifficulty = RecitationDifficulty.EXPERT
 
 
 class AudioBuffer:
@@ -38,6 +42,7 @@ class AudioBuffer:
         self.received = 0
         self.voice_end = 0
         self.stopped = False
+        self.discard_retry = False
         self.changed = asyncio.Event()
 
     def append(self, frame: bytes):
@@ -69,6 +74,13 @@ class AudioBuffer:
         self.offset += cut
 
 
+def transcribe_voiced_window(transcriber, audio, offset: float, voice_end: float):
+    # Whisper can append plausible words to the end of a decoded phrase.
+    # A token starting entirely in trailing silence cannot anchor a skip.
+    return [replace(w, start=w.start + offset, end=w.end + offset)
+            for w in transcriber.transcribe_words(audio) if w.start + offset < voice_end]
+
+
 async def run_recognition(socket: WebSocket, buffer: AudioBuffer,
                           tracker: LiveRecitation, transcriber):
     stable = StableWords()
@@ -77,6 +89,7 @@ async def run_recognition(socket: WebSocket, buffer: AudioBuffer,
     last_inference_ms = 0
     final_audio = None
     final_offset = 0.0
+    final_voice_end = 0.0
     while True:
         await buffer.changed.wait()
         buffer.changed.clear()
@@ -93,19 +106,22 @@ async def run_recognition(socket: WebSocket, buffer: AudioBuffer,
             offset = buffer.offset / SAMPLE_RATE
             audio = np.frombuffer(bytes(buffer.pcm), dtype="<i2").astype(np.float32) / 32768
             final_audio, final_offset = audio, offset
+            final_voice_end = buffer.voice_end / SAMPLE_RATE
             last_started = time.perf_counter()
-            words = await asyncio.to_thread(transcriber.transcribe_words, audio)
+            absolute = await asyncio.to_thread(
+                transcribe_voiced_window, transcriber, audio, offset, final_voice_end)
             last_inference_ms = round((time.perf_counter() - last_started) * 1000)
-            absolute = [SpokenWord(w.text, w.start + offset, w.end + offset) for w in words]
             committed = stable.update(absolute, final=buffer.stopped and end == buffer.received)
-            tracker.accept([w.text for w in committed])
+            if not buffer.discard_retry:
+                tracker.accept(committed)
             buffer.retire(stable.end)
-        elif not has_speech and stable.previous:
+        elif not has_speech:
             # A natural pause ends the spoken phrase, not the reference ayah.
             # Flush its last hypothesis before retiring silence, just as Stop
             # would; otherwise a final word seen only once could be lost.
-            committed = stable.update(stable.previous, final=True)
-            tracker.accept([w.text for w in committed])
+            committed = stable.flush()
+            if not buffer.discard_retry:
+                tracker.accept(committed, final=True)
             buffer.retire(stable.end)
         if not has_speech and end - buffer.voice_end > SAMPLE_RATE * 2:
             buffer.retire_silence(end)
@@ -116,33 +132,119 @@ async def run_recognition(socket: WebSocket, buffer: AudioBuffer,
             "audio_backlog_ms": round((buffer.received - end) / SAMPLE_RATE * 1000),
             "device": getattr(transcriber, "device", "test"),
         })
+        if buffer.discard_retry or (isinstance(tracker, GuidedRecitation) and tracker.segment_done):
+            return
         if buffer.stopped and analyzed == buffer.received:
             # Stop may arrive without new samples; finish the existing stable
             # hypothesis, never score the unrecited reference tail.
-            committed = stable.update(stable.previous, final=True)
-            tracker.accept([w.text for w in committed], final=True)
+            committed = stable.flush()
+            tracker.accept(committed, final=True)
             if final_audio is not None and tracker.cursor < len(tracker.words):
                 # Recheck the last bounded speech window with its full context.
                 # It may contain a word which an earlier partial decode omitted;
                 # silence retirement must not destroy the chance to recover it.
-                words = await asyncio.to_thread(transcriber.transcribe_words, final_audio)
-                absolute = [SpokenWord(w.text, w.start + final_offset, w.end + final_offset)
-                            for w in words]
+                absolute = await asyncio.to_thread(
+                    transcribe_voiced_window, transcriber, final_audio, final_offset, final_voice_end)
                 committed = stable.update(absolute, final=True)
-                tracker.accept([w.text for w in committed], final=True)
+                tracker.accept(committed, final=True)
             return
         if buffer.received > analyzed:
             buffer.changed.set()
 
 
+async def run_guided_session(socket: WebSocket, tracker: GuidedRecitation, transcriber):
+    buffer = None
+    worker = None
+    receiver = None
+
+    def start_capture():
+        nonlocal buffer, worker
+        buffer = AudioBuffer()
+        worker = asyncio.create_task(run_recognition(socket, buffer, tracker, transcriber))
+
+    async def end_capture(*, pausing: bool = False):
+        nonlocal buffer, worker
+        if worker is not None:
+            buffer.discard_retry = pausing and tracker.retry_index is not None
+            buffer.stopped = True
+            buffer.changed.set()
+            await worker
+            buffer = worker = None
+        tracker.end_segment()
+
+    async def respond(kind: str):
+        await socket.send_json({"type": kind, **tracker.snapshot()})
+
+    start_capture()
+    try:
+        while True:
+            receiver = asyncio.create_task(asyncio.wait_for(socket.receive(), timeout=60))
+            if worker is not None and not worker.done():
+                await asyncio.wait((receiver, worker), return_when=asyncio.FIRST_COMPLETED)
+            if worker is not None and worker.done():
+                worker.result()
+            message = await receiver
+            receiver = None
+            if message["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000))
+            if message.get("bytes") is not None:
+                if buffer is not None and not worker.done():
+                    buffer.append(message["bytes"])
+                continue
+            control = json.loads(message.get("text") or "null")
+            if not isinstance(control, dict):
+                raise ValueError("Unknown stream command")
+            action = control.get("type")
+            if action == "ping":
+                continue
+            if action == "stop":
+                await end_capture()
+                return
+            if action == "pause":
+                await end_capture(pausing=True)
+                await respond("paused")
+                continue
+            if action != "resume":
+                raise ValueError("Unknown stream command")
+            try:
+                if worker is not None:
+                    raise ValueError("Pause the current audio before resuming.")
+                if tracker.completed:
+                    raise ValueError("This passage is complete.")
+                ayah = control.get("ayah")
+                word_index = control.get("word_index")
+                replay_ayah = control.get("replay_ayah", False)
+                if (ayah is not None and type(ayah) is not int
+                        or word_index is not None and type(word_index) is not int
+                        or type(replay_ayah) is not bool
+                        or (word_index is not None or replay_ayah) and ayah is None
+                        or word_index is not None and replay_ayah):
+                    raise ValueError("Invalid retry selection.")
+                if tracker.blocked and tracker.retry_index is None and word_index is None:
+                    raise ValueError("Tap a flagged word to retry.")
+                tracker.begin_segment(ayah=ayah, word_index=word_index, replay_ayah=replay_ayah)
+            except ValueError as exc:
+                await socket.send_json({"type": "control_error", "message": str(exc)})
+                continue
+            start_capture()
+            await respond("resumed")
+    finally:
+        tasks = [task for task in (worker, receiver) if task is not None]
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
 def save_review(db: Session, user, surah: int, from_ayah: int, tracker: LiveRecitation):
     review = tracker.snapshot()
-    if not tracker.cursor:
+    if not review["confirmed_words"]:
         return {"session_id": None, **review}
     session = RecitationSession(
         user_id=user.id, surah=surah, ayah=from_ayah, mode="continuous",
-        status="uncertain" if tracker.uncertain or tracker.pending else "ok",
-        transcription=review["transcription"], total_words=tracker.cursor,
+        status=review["status"],
+        transcription=review["transcription"], total_words=review["confirmed_words"],
         correct_words=review["matched_words"])
     db.add(session)
     db.flush()
@@ -174,17 +276,32 @@ async def recite_live(socket: WebSocket, db: Session = Depends(get_db),
             await asyncio.wait_for(socket.receive_json(), timeout=10))
         user = get_current_user(
             HTTPAuthorizationCredentials(scheme="Bearer", credentials=start.token), db)
-        reference = load_reference().get(start.surah, {})
+        corpus = load_reference()
+        reference = corpus.get(start.surah, {})
         if start.from_ayah not in reference:
             raise ValueError("Unknown starting ayah")
         if not hasattr(transcriber, "transcribe_words"):
             raise ValueError("This backend does not support live speech recognition")
-        tracker = LiveRecitation({a: row["text"] for a, row in reference.items()
-                                  if a >= start.from_ayah})
+        window = {a: row["text"] for a, row in reference.items() if a >= start.from_ayah}
+        if start.guided:
+            vocabulary = None if start.difficulty == RecitationDifficulty.EXPERT else {
+                word for verses in corpus.values() for row in verses.values() for word in row["words"]
+            }
+            tracker = GuidedRecitation(window, difficulty=start.difficulty, vocabulary=vocabulary)
+        else:
+            tracker = LiveRecitation(window)
         # The client keeps its microphone off until the model has loaded.
         device = await asyncio.to_thread(transcriber.prepare_stream)
         await socket.send_json({"type": "ready", "device": device, "sample_rate": SAMPLE_RATE,
-                                "engine": getattr(transcriber, "engine", "test")})
+                                "engine": getattr(transcriber, "engine", "test"),
+                                "guided": start.guided,
+                                "difficulty": start.difficulty})
+        if isinstance(tracker, GuidedRecitation):
+            await run_guided_session(socket, tracker, transcriber)
+            review = save_review(db, user, start.surah, start.from_ayah, tracker)
+            await socket.send_json({"type": "finished", **review})
+            await socket.close()
+            return
         buffer = AudioBuffer()
 
         async def receive_audio():
