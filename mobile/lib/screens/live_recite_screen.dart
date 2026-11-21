@@ -1,15 +1,18 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../models/mushaf.dart';
 import '../services/api_client.dart';
 import '../services/audio_service.dart';
 import '../services/live_recitation.dart';
 import '../state/app_state.dart';
 import '../widgets/common.dart';
+import '../widgets/mushaf_page.dart';
 
 enum _Phase { idle, connecting, listening, pausing, paused, resuming, stopping }
 
@@ -21,6 +24,7 @@ class ReciteScreen extends StatefulWidget {
     this.active = true,
     this.sessionFactory,
     this.audio,
+    this.loadMushaf,
   });
 
   final int? initialSurah;
@@ -29,6 +33,7 @@ class ReciteScreen extends StatefulWidget {
   final LiveRecitationSession Function(
       ApiClient, int, int, RecitationDifficulty)? sessionFactory;
   final AudioService? audio;
+  final Future<MushafBook?> Function()? loadMushaf;
 
   @override
   State<ReciteScreen> createState() => _ReciteScreenState();
@@ -42,9 +47,13 @@ class _ReciteScreenState extends State<ReciteScreen>
   late int _fromAyah;
   late bool _hifz;
   final _scroll = ScrollController();
+  final _pager = PageController(keepPage: false);
   final _cursorKey = GlobalKey();
   List<SurahMeta> _surahs = [];
   List<AyahText> _ayahs = [];
+  MushafBook? _mushaf;
+  int? _visiblePage;
+  bool _enlarged = false;
   bool _loading = true;
   bool _foreground = true;
   bool _leaving = false;
@@ -84,19 +93,30 @@ class _ReciteScreenState extends State<ReciteScreen>
       _loading = true;
       _loadError = null;
       _ayahs = [];
+      _mushaf = null;
       _resetFeedback();
     });
     try {
       final list = _surahs.isEmpty ? await _app.api.surahs() : _surahs;
       final detail = await _app.api.surah(surah);
+      MushafBook? book;
+      try {
+        final candidate =
+            await (widget.loadMushaf?.call() ?? MushafBook.load());
+        if (candidate?.matches(detail) == true) book = candidate;
+      } catch (_) {
+        // Canonical reading stays available if the verified edition is missing.
+      }
       if (!mounted || version != _loadVersion) return;
       if (detail.ayahs.isEmpty) throw ApiException('This surah has no ayahs.');
       setState(() {
         _surahs = list;
         _ayahs = detail.ayahs;
+        _mushaf = book;
         if (!_ayahs.any((a) => a.ayah == _fromAyah)) {
           _fromAyah = _ayahs.first.ayah;
         }
+        _visiblePage = book?.pageForAyah(surah, _fromAyah);
       });
     } catch (_) {
       if (mounted && version == _loadVersion) {
@@ -115,6 +135,10 @@ class _ReciteScreenState extends State<ReciteScreen>
     _finished = false;
     _sessionError = null;
     if (_scroll.hasClients) _scroll.jumpTo(0);
+    _visiblePage = _mushaf?.pageForAyah(_surah, _fromAyah);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pager.hasClients) _pager.jumpToPage(0);
+    });
   }
 
   Future<void> _start() async {
@@ -155,21 +179,7 @@ class _ReciteScreenState extends State<ReciteScreen>
             _feedback = update;
             if (update.completed) _phase = _Phase.stopping;
           });
-          if (moved && !update.completed && _busy) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              final target = _cursorKey.currentContext;
-              if (mounted && _busy && target != null) {
-                unawaited(
-                  Scrollable.ensureVisible(
-                    target,
-                    duration: const Duration(milliseconds: 160),
-                    alignmentPolicy:
-                        ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
-                  ),
-                );
-              }
-            });
-          }
+          if (moved && _busy) _focusWord(update);
         },
       );
       if (!mounted || review == null) return;
@@ -192,6 +202,34 @@ class _ReciteScreenState extends State<ReciteScreen>
           });
         }
       }
+    }
+  }
+
+  void _focusWord(LiveFeedback update) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_busy ||
+          _feedback?.currentAyah != update.currentAyah ||
+          _feedback?.currentWord != update.currentWord) {
+        return;
+      }
+      final book = _mushaf;
+      final page = book?.pageFor(
+          (surah: _surah, ayah: update.currentAyah, index: update.currentWord));
+      if (page != null && page != _visiblePage && _pager.hasClients) {
+        _pager.jumpToPage(page - book!.pageForAyah(_surah, _fromAyah));
+        WidgetsBinding.instance.addPostFrameCallback((_) => _revealWord());
+      } else {
+        _revealWord();
+      }
+    });
+  }
+
+  void _revealWord() {
+    final target = _cursorKey.currentContext;
+    if (mounted && target != null) {
+      unawaited(Scrollable.ensureVisible(target,
+          duration: const Duration(milliseconds: 160), alignment: .48));
     }
   }
 
@@ -327,6 +365,7 @@ class _ReciteScreenState extends State<ReciteScreen>
     if (session != null) unawaited(session.close());
     _audio.dispose();
     _scroll.dispose();
+    _pager.dispose();
     super.dispose();
   }
 
@@ -386,14 +425,22 @@ class _ReciteScreenState extends State<ReciteScreen>
                 ),
               ),
             Expanded(
-              child: ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                scrollCacheExtent: const ScrollCacheExtent.pixels(2400),
-                itemCount: passage.length,
-                itemBuilder: (context, i) => _buildAyah(passage[i]),
-              ),
+              child: _mushaf != null
+                  ? _mushafReader(_mushaf!)
+                  : ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(2400),
+                      itemCount: passage.length,
+                      itemBuilder: (context, i) => _buildAyah(passage[i]),
+                    ),
             ),
+            if (passage.isNotEmpty && _mushaf == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text(
+                    'Verified Mushaf layout unavailable. Showing standard text.'),
+              ),
             if (passage.isNotEmpty)
               SafeArea(
                 top: false,
@@ -459,6 +506,237 @@ class _ReciteScreenState extends State<ReciteScreen>
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _mushafReader(MushafBook book) {
+    final first = book.pageForAyah(_surah, _fromAyah);
+    final last = book.lastPage(_surah);
+    final shown = (_visiblePage ?? first).clamp(first, last);
+    final sheet = book.page(shown);
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              tooltip: 'Previous printed page',
+              onPressed: shown == first
+                  ? null
+                  : () => _pager.previousPage(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut),
+              icon: const Icon(Icons.chevron_right),
+            ),
+            Text('Page $shown', key: const Key('mushaf-page-current')),
+            IconButton(
+              tooltip: 'Next printed page',
+              onPressed: shown == last
+                  ? null
+                  : () => _pager.nextPage(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            IconButton(
+              tooltip: _enlarged ? 'Fit page width' : 'Enlarge printed page',
+              onPressed: () => setState(() => _enlarged = !_enlarged),
+              icon: Icon(_enlarged ? Icons.zoom_out : Icons.zoom_in),
+            ),
+          ],
+        ),
+        Expanded(
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: PageView.builder(
+              controller: _pager,
+              physics: _enlarged ? const NeverScrollableScrollPhysics() : null,
+              itemCount: last - first + 1,
+              onPageChanged: (index) {
+                final shown = first + index;
+                if (_visiblePage != shown) setState(() => _visiblePage = shown);
+              },
+              itemBuilder: (context, index) {
+                final page = book.page(first + index);
+                return LayoutBuilder(builder: (context, constraints) {
+                  final width = math.min(560.0, constraints.maxWidth);
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(
+                        width: width,
+                        child: SingleChildScrollView(
+                          primary: false,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: _enlarged
+                                ? null
+                                : const NeverScrollableScrollPhysics(),
+                            child: SizedBox(
+                              width: width * (_enlarged ? 1.48 : 1),
+                              child: MushafSheet(
+                                key: ValueKey('mushaf-sheet-${page.number}'),
+                                book: book,
+                                page: page,
+                                hideCatchword: _hifz,
+                                wordBuilder: _buildPrintedToken,
+                              ),
+                            ),
+                          ),
+                        )),
+                  );
+                });
+              },
+            ),
+          ),
+        ),
+        _printedActions(sheet),
+      ],
+    );
+  }
+
+  bool _inPassage(MushafToken token) =>
+      token.surah == _surah && token.ayah >= _fromAyah;
+
+  LiveWord? _wordMark(int ayah, int index) =>
+      _feedback?.words[(ayah: ayah, index: index)];
+
+  bool _flagged(LiveWord? mark) =>
+      mark == LiveWord.missed || mark == LiveWord.incorrect;
+
+  bool _canRetryWord(int ayah, LiveWord? mark) =>
+      _canGuide &&
+      !_playing &&
+      _flagged(mark) &&
+      ayah == _feedback?.currentAyah;
+
+  bool _canPlayWord(int ayah, LiveWord? mark) =>
+      _canRetryWord(ayah, mark) ||
+      (!_busy &&
+          _available &&
+          !_playing &&
+          (_flagged(mark) || mark == LiveWord.corrected));
+
+  int _tokenIndex(MushafToken token) {
+    final feedback = _feedback;
+    if (token.ayah == feedback?.currentAyah &&
+        token.indices.contains(feedback?.currentWord)) {
+      return feedback!.currentWord;
+    }
+    return token.indices.firstWhere((i) => _flagged(_wordMark(token.ayah, i)),
+        orElse: () => token.indices.first);
+  }
+
+  Widget _buildPrintedToken(MushafToken token, double size) {
+    final ayah = token.ayah;
+    final inPassage = _inPassage(token);
+    if (token.isEnding) {
+      final number =
+          token.text.isEmpty ? '' : mushafDigits(int.parse(token.text));
+      return Semantics(
+        label:
+            number.isEmpty ? 'Bismillah rosette' : 'Printed ayah ${token.text}',
+        excludeSemantics: true,
+        child: MushafEnding(label: number, size: size, stop: token.stop),
+      );
+    }
+    final index = inPassage ? _tokenIndex(token) : token.indices.first;
+    final mark = inPassage ? _wordMark(ayah, index) : null;
+    final hidden = _hifz && (mark == null || mark == LiveWord.unresolved);
+    final current =
+        inPassage && _busy && ayah == (_feedback?.currentAyah ?? _fromAyah);
+    final cursor = current && index == (_feedback?.currentWord ?? 0);
+    final canRetry = inPassage && _canRetryWord(ayah, mark);
+    final canPlay = inPassage && _canPlayWord(ayah, mark);
+    final (label, foreground, background) = _verdict(mark, mushafInk);
+    final key = cursor && _mushaf!.isAnchor(token, index) ? _cursorKey : null;
+    return KeyedSubtree(
+      key: key,
+      child: Semantics(
+        label: hidden
+            ? 'Hidden word ${index + 1}, ayah $ayah'
+            : '${token.text}${label == null ? '' : ', $label'}',
+        selected: cursor,
+        excludeSemantics: true,
+        button: canRetry || canPlay,
+        onTap: canRetry
+            ? () => _retry(ayah, wordIndex: index)
+            : canPlay
+                ? () => _hearWord(ayah, index)
+                : null,
+        child: GestureDetector(
+          excludeFromSemantics: true,
+          behavior: HitTestBehavior.opaque,
+          onTap: canRetry
+              ? () => _retry(ayah, wordIndex: index)
+              : canPlay
+                  ? () => _hearWord(ayah, index)
+                  : null,
+          child: DecoratedBox(
+            key: ValueKey(
+                (token.surah, ayah, index, hidden ? 'hidden' : 'printed')),
+            decoration: BoxDecoration(
+              color: background != Colors.transparent
+                  ? background
+                  : current
+                      ? const Color(0xFFE8E8E8)
+                      : null,
+              border: cursor
+                  ? const Border(
+                      bottom: BorderSide(color: Colors.black87, width: 2))
+                  : null,
+            ),
+            child: Center(
+              child: RichText(
+                textDirection: TextDirection.rtl,
+                text: mushafWordSpan(
+                    token, size, hidden ? Colors.transparent : foreground),
+                overflow: TextOverflow.visible,
+                maxLines: 1,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _printedActions(MushafPage page) {
+    final positions = <WordPosition>{
+      for (final token in page.tokens.where(_inPassage))
+        for (final index in token.indices) (ayah: token.ayah, index: index),
+    };
+    final marks = {for (final p in positions) p: _wordMark(p.ayah, p.index)};
+    final actions =
+        marks.entries.where((e) => _canPlayWord(e.key.ayah, e.value));
+    final labels = {
+      for (final mark in marks.values) _verdict(mark, mushafInk).$1
+    }..remove(null);
+    if (actions.isEmpty && labels.isEmpty) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          for (final label in labels)
+            Padding(
+                padding: const EdgeInsets.only(right: 8), child: Text(label!)),
+          for (final item in actions) ...[
+            if (_canRetryWord(item.key.ayah, item.value))
+              TextButton(
+                onPressed: () =>
+                    _retry(item.key.ayah, wordIndex: item.key.index),
+                child: Text('Retry ${item.key.ayah}:${item.key.index + 1}'),
+              ),
+            IconButton(
+              key: Key('live-word-audio-${item.key.ayah}-${item.key.index}'),
+              onPressed: () => _hearWord(item.key.ayah, item.key.index),
+              tooltip:
+                  'Hear reference word, ayah ${item.key.ayah}, word ${item.key.index + 1}',
+              icon: const Icon(Icons.volume_up_outlined),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -601,35 +879,10 @@ class _ReciteScreenState extends State<ReciteScreen>
         ),
       );
     }
-    final colors = Theme.of(context).colorScheme;
-    const matchedText = Color(0xFF145831);
-    const matchedBackground = Color(0xFFCCF2D9);
-    final (label, foreground, background) = switch (mark) {
-      LiveWord.correct || LiveWord.corrected => (
-          'Correct',
-          matchedText,
-          matchedBackground
-        ),
-      LiveWord.missed => (
-          'Missed',
-          const Color(0xFF633E00),
-          const Color(0xFFFFE890),
-        ),
-      LiveWord.incorrect => (
-          'Incorrect',
-          const Color(0xFF801628),
-          const Color(0xFFFFDADF),
-        ),
-      _ => (null, colors.onSurface, Colors.transparent),
-    };
-    final flagged = mark == LiveWord.missed || mark == LiveWord.incorrect;
-    final canRetry =
-        _canGuide && !_playing && flagged && ayah == _feedback?.currentAyah;
-    final canPlay = canRetry ||
-        (!_busy &&
-            _available &&
-            !_playing &&
-            (flagged || mark == LiveWord.corrected));
+    final (label, foreground, background) =
+        _verdict(mark, Theme.of(context).colorScheme.onSurface);
+    final canRetry = _canRetryWord(ayah, mark);
+    final canPlay = _canPlayWord(ayah, mark);
     final selected = _busy &&
         ayah == _feedback?.currentAyah &&
         index == _feedback?.retryWord;
@@ -674,5 +927,28 @@ class _ReciteScreenState extends State<ReciteScreen>
         ),
       ),
     );
+  }
+
+  (String?, Color, Color) _verdict(LiveWord? mark, Color defaultInk) {
+    const matchedText = Color(0xFF145831);
+    const matchedBackground = Color(0xFFCCF2D9);
+    return switch (mark) {
+      LiveWord.correct || LiveWord.corrected => (
+          'Correct',
+          matchedText,
+          matchedBackground
+        ),
+      LiveWord.missed => (
+          'Missed',
+          const Color(0xFF633E00),
+          const Color(0xFFFFE890),
+        ),
+      LiveWord.incorrect => (
+          'Incorrect',
+          const Color(0xFF801628),
+          const Color(0xFFFFDADF),
+        ),
+      _ => (null, defaultInk, Colors.transparent),
+    };
   }
 }

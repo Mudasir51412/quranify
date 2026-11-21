@@ -14,3 +14,5 @@ mobile/.dart_tool/
 benchmarks/audio_cache/
 dist/
 *.apk
+# Local display data derived from the verified Taj sources (MUSHAF-DATA.md).
+/mobile/assets/mushaf/taj13.json

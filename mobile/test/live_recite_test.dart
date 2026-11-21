@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:quranify/models/models.dart';
+import 'package:quranify/models/mushaf.dart';
 import 'package:quranify/screens/recite_screens.dart';
 import 'package:quranify/services/api_client.dart';
 import 'package:quranify/services/audio_service.dart';
@@ -16,24 +18,35 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class TestApi extends ApiClient {
-  TestApi()
+  TestApi([this.passage])
       : super(baseUrl: 'https://example.test/quranify/', token: 'test-token');
 
+  final SurahDetail? passage;
   final correctionRequests = <({int ayah, int index})>[];
   int profileReads = 0;
 
   @override
-  Future<List<SurahMeta>> surahs() async => const [
-        SurahMeta(
-          number: 112,
-          nameAr: 'الإخلاص',
-          nameEn: 'Al-Ikhlas',
-          ayahCount: 3,
-        ),
-      ];
+  Future<List<SurahMeta>> surahs() async => passage != null
+      ? [
+          SurahMeta(
+              number: passage!.number,
+              nameAr: passage!.nameAr,
+              nameEn: passage!.nameEn,
+              ayahCount: passage!.ayahs.length),
+        ]
+      : const [
+          SurahMeta(
+            number: 112,
+            nameAr: 'الإخلاص',
+            nameEn: 'Al-Ikhlas',
+            ayahCount: 3,
+          ),
+        ];
 
   @override
-  Future<SurahDetail> surah(int num) async => const SurahDetail(
+  Future<SurahDetail> surah(int num) async =>
+      passage ??
+      const SurahDetail(
         number: 112,
         nameAr: 'الإخلاص',
         nameEn: 'Al-Ikhlas',
@@ -223,7 +236,10 @@ Map<String, dynamic> feedback({
     };
 
 class Harness {
-  final api = TestApi();
+  Harness({SurahDetail? passage, this.book}) : api = TestApi(passage);
+
+  final TestApi api;
+  final MushafBook? book;
   late final state = AppState(api: api);
   final audio = TestPlayback();
   final mic = TestMic();
@@ -242,10 +258,11 @@ class Harness {
           home: ValueListenableBuilder(
             valueListenable: active,
             builder: (context, value, child) => ReciteScreen(
-              initialSurah: 112,
+              initialSurah: api.passage?.number ?? 112,
               initialAyah: fromAyah,
               active: value,
               audio: audio,
+              loadMushaf: () async => book,
               sessionFactory: (api, surah, fromAyah, difficulty) =>
                   LiveRecitationSession(
                 api: api,
@@ -286,6 +303,93 @@ void main() {
   const green = Color(0xFFCCF2D9);
   const yellow = Color(0xFFFFE890);
   const red = Color(0xFFFFDADF);
+
+  for (final hifz in [false, true]) {
+    testWidgets(
+        'Printed page following, word action and masking (${hifz ? 'Hifz' : 'Normal'})',
+        (tester) async {
+      final book = MushafBook.fromJson(
+          jsonDecode(File('assets/mushaf/taj13.json').readAsStringSync())
+              as Map<String, dynamic>);
+      final corpus =
+          jsonDecode(File('../data/quran_reference.json').readAsStringSync())
+              as Map;
+      final source = corpus['surahs']['2'] as Map;
+      final detail = SurahDetail(
+          number: 2,
+          nameAr: source['name_ar'] as String,
+          nameEn: source['name_en'] as String,
+          bismillah: null,
+          ayahs: (source['ayahs'] as Map).entries.map((entry) {
+            final text = entry.value as String;
+            return AyahText(
+                ayah: int.parse(entry.key as String),
+                text: text,
+                wordCount: text.split(RegExp(r'\s+')).length);
+          }).toList());
+      final harness = Harness(passage: detail, book: book);
+      const pageKey = Key('mushaf-page-current');
+      String? page() => tester.widget<Text>(find.byKey(pageKey)).data;
+      final crossing =
+          book.page(4).tokens.lastWhere((entry) => !entry.isEnding);
+      final continuation =
+          book.page(5).tokens.firstWhere((entry) => !entry.isEnding);
+      expect((crossing.ayah, continuation.ayah), (13, 13));
+      final index = continuation.indices.first;
+      final hidden = find.byKey(ValueKey((2, 13, index, 'hidden')));
+      final printed = find.byKey(ValueKey((2, 13, index, 'printed')));
+      await harness.render(tester, fromAyah: 13);
+      expect(page(), 'Page 4');
+      if (hifz) {
+        await tester.tap(find.text('Hifz'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byTooltip('Next printed page'));
+      await tester.pumpAndSettle();
+      expect(page(), 'Page 5');
+      final before = tester.getRect(hifz ? hidden : printed);
+      await tester.tap(find.byTooltip('Enlarge printed page'));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(hifz ? hidden : printed).width,
+          greaterThan(before.width));
+      await tester.tap(find.byTooltip('Fit page width'));
+      await tester.pumpAndSettle();
+      await harness.start(tester);
+      expect(page(), 'Page 4');
+      final missed = [mistake(13, index, 'skipped')];
+      final update = feedback(
+          ayah: 13,
+          currentWord: index,
+          needsRetry: true,
+          words: [word(13, index, 'skipped')],
+          mistakes: missed);
+      harness.socket.event(update);
+      await tester.pumpAndSettle();
+      expect(page(), 'Page 5');
+      final box = tester.widget<DecoratedBox>(printed);
+      expect((box.decoration as BoxDecoration).color, yellow);
+      expect(tester.getSize(printed).width, closeTo(before.width, 0.001));
+      expect(tester.getSize(printed).height, closeTo(before.height, 0.001));
+      expect(find.text('Missed'), findsOneWidget);
+      expect(jsonDecode(harness.socket.sent.last as String), {'type': 'pause'});
+      harness.socket.event({...update, 'type': 'paused'});
+      await tester.pumpAndSettle();
+      if (hifz) {
+        await tester.tap(find.byKey(Key('live-word-audio-13-$index')));
+        await tester.pumpAndSettle();
+        expect(harness.api.correctionRequests, [(ayah: 13, index: index)]);
+        expect(harness.audio.playedEnd, const Duration(milliseconds: 240));
+        expect(harness.mic.starts, 1);
+      }
+      await tester.ensureVisible(printed);
+      await tester.tap(printed);
+      await tester.pumpAndSettle();
+      expect(jsonDecode(harness.socket.sent.last as String),
+          {'type': 'resume', 'ayah': 13, 'word_index': index});
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
+  }
 
   Color? highlight(WidgetTester tester, int ayah, int index) => tester
       .widget<Material>(find.byKey(Key('recite-word-$ayah-$index')))

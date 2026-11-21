@@ -14,6 +14,12 @@ from pathlib import Path
 from .normalization import fix_whisper
 
 
+def spoken_words(text: str) -> list[tuple[int, str]]:
+    """Keep raw public indices while excluding standalone Quran annotations."""
+    return [(index, word) for index, word in enumerate(text.split())
+            if any(char.isalpha() for char in word)]
+
+
 def build_reference(data: dict) -> dict:
     ref: dict[int, dict[int, dict]] = {}
     for surah_str, surah in data.get("surahs", {}).items():

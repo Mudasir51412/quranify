@@ -10,6 +10,7 @@ from itertools import groupby
 
 from .harakat import compare_word_harakat
 from .normalization import fix_whisper
+from .reference import spoken_words
 from ..services.transcriber import SpokenWord
 
 
@@ -118,7 +119,7 @@ class LiveRecitation:
     def __init__(self, window: dict[int, str]):
         self.words = [ReferenceWord(a, i, w, _word_key(w))
                       for a, text in sorted(window.items())
-                      for i, w in enumerate(text.split())]
+                      for i, w in spoken_words(text)]
         self.cursor = 0
         self.pending: list[SpokenWord] = []
         self.transcript: list[str] = []
@@ -129,7 +130,7 @@ class LiveRecitation:
         self.ayah_ends: dict[int, int] = {}
         for i, word in enumerate(self.words):
             self.ayah_ends[word.ayah] = i + 1
-            if word.index == 0:
+            if i == 0 or self.words[i - 1].ayah != word.ayah:
                 self.ayah_starts.setdefault(word.normalized, []).append(i)
         self.replay: tuple[int, int] | None = None
 

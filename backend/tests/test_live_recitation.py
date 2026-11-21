@@ -25,6 +25,18 @@ def tracker():
     return LiveRecitation({1: "قُلْ هُوَ ٱللَّهُ أَحَدٌ", 2: "ٱللَّهُ ٱلصَّمَدُ"})
 
 
+def test_annotations_preserve_raw_indices_and_targeted_retry():
+    guided = GuidedRecitation({1: '۞ قل ۚ هو ۩ احد'})
+    guided.accept(['قل', 'هو', 'احد'], final=True)
+    assert guided.completed and not guided.mistakes
+    assert [w['word_index'] for w in guided.snapshot()['words']] == [1, 3, 5]
+    guided = GuidedRecitation({1: '۞ قل ۚ هو ۩ احد'})
+    guided.accept(['قل', 'احد'], final=True)
+    guided.begin_segment(ayah=1, word_index=3)
+    guided.accept(['هو'], final=True)
+    assert guided.completed and guided.retry_result == 'correct'
+
+
 @pytest.mark.parametrize(("variant", "accepted"), [
     ("المغضووب", {RecitationDifficulty.BEGINNER, RecitationDifficulty.INTERMEDIATE}),
     ("المغغضوب", {RecitationDifficulty.BEGINNER}),

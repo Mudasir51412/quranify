@@ -24,3 +24,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/mushaf/
+    - assets/fonts/DigitalKhatt-OFL.txt
+  fonts:
+    - family: IndoPak
+      fonts:
+        - asset: assets/fonts/DigitalKhattIndoPak.otf

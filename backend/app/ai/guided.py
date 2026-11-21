@@ -58,8 +58,9 @@ class GuidedRecitation(LiveRecitation):
         if ayah is not None and ayah != self.active_ayah:
             raise ValueError("This ayah is no longer active.")
         if word_index is not None:
-            index = self.ayah_start + word_index
-            if not (0 <= word_index and index < self.ayah_end and index in self.mistakes
+            index = next((i for i in range(self.ayah_start, self.ayah_end)
+                          if self.words[i].index == word_index), None)
+            if not (index is not None and index in self.mistakes
                     and not self.mistakes[index]["corrected"]):
                 raise ValueError("Choose a flagged word in the current ayah.")
             self.retry_index = index

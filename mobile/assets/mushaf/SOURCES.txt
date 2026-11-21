@@ -1,0 +1,5 @@
+Quranify Taj 13-line reading edition
+Tarteel QUL / Itqan Taj page and line indices
+Quran.com Indo-Pak display script and Tanzil partition metadata
+DigitalKhatt IndoPak font under the SIL Open Font License 1.1
+Source details and local asset build steps are in MUSHAF-DATA.md.

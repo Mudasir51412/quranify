@@ -217,12 +217,13 @@ matching and produced no false skips. Covered by tests 04 + 13.
 
 ## Android setup from a clean checkout
 
-Install Flutter and the Android toolchain, then check them with `flutter doctor`.
+Install Flutter 3.44 or newer (Dart 3.12+) and the Android toolchain, then check them with `flutter doctor`.
 The repository includes the Android launcher icons and manifest. The Flutter
 build creates the local SDK settings and supplies the Gradle wrapper from its
 tool cache.
 
 ```sh
+python scripts/prepare_mushaf.py
 cd mobile
 flutter pub get
 flutter build apk --debug
@@ -252,6 +253,7 @@ Complete app covering all 8 report modules:
 Run it:
 
 ```
+python scripts/prepare_mushaf.py
 cd mobile
 flutter pub get
 flutter run --dart-define=API_URL=http://10.0.2.2:8000   # Android emulator

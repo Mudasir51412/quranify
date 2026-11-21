@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..ai.audio_guardrails import AudioStatus, validate_audio
 from ..ai.practice import assess_practice
-from ..ai.reference import load_reference
+from ..ai.reference import load_reference, spoken_words
 from ..db import get_db
 from ..models import MistakeRecord, RecitationSession, User
 from ..security import get_current_user
@@ -219,22 +219,25 @@ def correction_audio(surah: int, ayah: int, word: int,
     if surah not in ref or ayah not in ref.get(surah, {}):
         raise HTTPException(400, "Unknown surah/ayah")
     words = ref[surah][ayah]["text"].split()
-    if word < 0 or word >= len(words):
+    indices = [index for index, _ in spoken_words(ref[surah][ayah]["text"])]
+    if word not in indices:
         raise HTTPException(400, "Word index out of range (ayah-local, zero-based)")
-    start = max(0, word - 1) if word_start is None else word_start
-    end = min(len(words) - 1, word + 1) if word_end is None else word_end
-    if not 0 <= start <= word <= end < len(words):
+    ordinal = indices.index(word)
+    start = indices[max(0, ordinal - 1)] if word_start is None else word_start
+    end = indices[min(len(indices) - 1, ordinal + 1)] if word_end is None else word_end
+    if start not in indices or end not in indices or not start <= word <= end:
         raise HTTPException(400, "Invalid correction phrase range")
     try:
-        url, timings = verse_audio(surah, ayah, len(words))
+        url, timings = verse_audio(surah, ayah, len(indices))
     except Exception:
         raise HTTPException(503, "Phrase audio is unavailable. Please try Listen again.")
     return {
         "surah": surah, "ayah": ayah, "word_index": word,
         "word": words[word],
-        "prev_word": words[word - 1] if word > 0 else None,
-        "next_word": words[word + 1] if word + 1 < len(words) else None,
+        "prev_word": words[indices[ordinal - 1]] if ordinal > 0 else None,
+        "next_word": words[indices[ordinal + 1]] if ordinal + 1 < len(indices) else None,
         "word_start": start, "word_end": end, "phrase": " ".join(words[start:end + 1]),
-        "audio_url": url, "start_ms": timings[start][0], "end_ms": timings[end][1],
+        "audio_url": url, "start_ms": timings[indices.index(start)][0],
+        "end_ms": timings[indices.index(end)][1],
         "phrase_audio_available": True,
     }

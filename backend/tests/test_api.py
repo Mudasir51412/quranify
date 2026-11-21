@@ -291,6 +291,17 @@ def test_correction_audio_word_and_context(monkeypatch):
     assert bad.status_code == 400
 
 
+def test_correction_audio_translates_raw_index_past_pause_marks(monkeypatch):
+    def audio(surah, ayah, count):
+        assert count == 7
+        return 'https://example.test/audio.mp3', tuple((i * 100, i * 100 + 80) for i in range(count))
+    monkeypatch.setattr('app.routers.analyze.verse_audio', audio)
+    response = client.get('/correction_audio', headers=register(), params={
+        'surah': 2, 'ayah': 2, 'word': 5, 'word_start': 5, 'word_end': 5})
+    assert response.status_code == 200
+    assert (response.json()['start_ms'], response.json()['end_ms']) == (400, 480)
+
+
 def test_missing_phrase_timings_do_not_return_whole_ayah_audio(monkeypatch):
     def unavailable(*args):
         raise ValueError("No word timings")
