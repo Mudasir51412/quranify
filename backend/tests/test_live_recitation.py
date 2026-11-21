@@ -34,7 +34,10 @@ def test_annotations_preserve_raw_indices_and_targeted_retry():
     guided.accept(['قل', 'احد'], final=True)
     guided.begin_segment(ayah=1, word_index=3)
     guided.accept(['هو'], final=True)
-    assert guided.completed and guided.retry_result == 'correct'
+    assert guided.retry_result == 'correct' and not guided.blocked
+    guided.begin_segment(ayah=1)
+    guided.accept(['احد'], final=True)
+    assert guided.completed
 
 
 @pytest.mark.parametrize(("variant", "accepted"), [
